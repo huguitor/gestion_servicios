@@ -1,0 +1,125 @@
+# gestion/presupuestos/serializers.py
+from rest_framework import serializers
+from .models import Presupuesto, PresupuestoItem
+from clientes.models import Cliente
+from productos.models import Producto, Servicio
+from comprobantes.models import Comprobante
+from decimal import Decimal, ROUND_HALF_UP
+
+class PresupuestoItemSerializer(serializers.ModelSerializer):
+    producto = serializers.PrimaryKeyRelatedField(queryset=Producto.objects.all(), allow_null=True)
+    servicio = serializers.PrimaryKeyRelatedField(queryset=Servicio.objects.all(), allow_null=True)
+    codigo = serializers.CharField(max_length=50, allow_blank=True, read_only=True)
+    descripcion = serializers.CharField(max_length=255, allow_blank=True, read_only=True)
+    precio_unitario = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = PresupuestoItem
+        fields = ['id', 'producto', 'servicio', 'codigo', 'descripcion', 'cantidad', 'precio_unitario']
+
+    def validate(self, data):
+        if not data.get('producto') and not data.get('servicio'):
+            raise serializers.ValidationError("Debe especificar un producto o un servicio.")
+        if data.get('producto') and data.get('servicio'):
+            raise serializers.ValidationError("No puede especificar producto y servicio simultáneamente.")
+        return data
+
+
+class PresupuestoSerializer(serializers.ModelSerializer):
+    cliente = serializers.PrimaryKeyRelatedField(queryset=Cliente.objects.all())
+    items = PresupuestoItemSerializer(many=True)
+    comprobante = serializers.PrimaryKeyRelatedField(queryset=Comprobante.objects.all(), allow_null=True, required=False)
+    numero = serializers.IntegerField(read_only=True)
+    total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    iva_valor = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    cliente_display_name = serializers.CharField(source='cliente.__str__', read_only=True)
+
+    class Meta:
+        model = Presupuesto
+        fields = [
+            'id', 'cliente', 'cliente_display_name', 'fecha', 'comprobante', 'numero', 'creado_por',
+            'valido_hasta', 'observaciones', 'condiciones_comerciales', 'iva_porcentaje',
+            'estado', 'items', 'subtotal', 'iva_valor', 'total',
+            'creado', 'actualizado'
+        ]
+        read_only_fields = ['creado', 'actualizado', 'fecha', 'total', 'subtotal', 'iva_valor', 'numero']
+
+    def validate(self, data):
+        items_data = self.context['request'].data.get('items', [])
+        if not items_data:
+            raise serializers.ValidationError("Un presupuesto debe tener al menos un ítem.")
+        return data
+
+    def _crear_actualizar_items(self, presupuesto, items_data):
+        subtotal = Decimal('0.00')
+        agrupados = {}
+
+        # Agrupar por producto/servicio
+        for item in items_data:
+            key = (item.get('producto'), item.get('servicio'))
+            if key in agrupados:
+                agrupados[key]['cantidad'] += item.get('cantidad', 0)
+            else:
+                agrupados[key] = item.copy()
+
+        for item_data in agrupados.values():
+            producto = item_data.get('producto')
+            servicio = item_data.get('servicio')
+
+            if producto:
+                if isinstance(producto, int):
+                    producto = Producto.objects.get(pk=producto)
+                item_data['codigo'] = producto.sku or ''
+                item_data['descripcion'] = producto.nombre
+                precio_unitario = Decimal(producto.precio_venta or '0.00')
+                item_data['producto'] = producto
+                item_data['servicio'] = None
+
+            elif servicio:
+                if isinstance(servicio, int):
+                    servicio = Servicio.objects.get(pk=servicio)
+                item_data['codigo'] = servicio.codigo_interno or ''
+                item_data['descripcion'] = servicio.nombre
+                precio_unitario = Decimal(servicio.precio_base or '0.00')
+                item_data['producto'] = None
+                item_data['servicio'] = servicio
+                item_data['precio_unitario'] = precio_unitario
+
+            else:
+                precio_unitario = Decimal('0.00')
+                item_data['precio_unitario'] = precio_unitario
+
+            cantidad = Decimal(item_data.get('cantidad', 0))
+            subtotal += cantidad * precio_unitario
+
+            PresupuestoItem.objects.create(presupuesto=presupuesto, **item_data)
+
+        return subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        presupuesto = Presupuesto.objects.create(**validated_data)
+        subtotal = self._crear_actualizar_items(presupuesto, items_data)
+        iva_valor = (subtotal * Decimal(presupuesto.iva_porcentaje) / 100).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total = (subtotal + iva_valor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+        presupuesto.subtotal = subtotal
+        presupuesto.iva_valor = iva_valor
+        presupuesto.total = total
+        presupuesto.save()
+        return presupuesto
+
+    def update(self, instance, validated_data):
+        items_data = validated_data.pop('items', [])
+        instance = super().update(instance, validated_data)
+        instance.items.all().delete()
+        subtotal = self._crear_actualizar_items(instance, items_data)
+        iva_valor = (subtotal * Decimal(instance.iva_porcentaje) / 100).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total = (subtotal + iva_valor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+        instance.subtotal = subtotal
+        instance.iva_valor = iva_valor
+        instance.total = total
+        instance.save()
+        return instance
