@@ -84,20 +84,17 @@ class Servicio(models.Model):
     )
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
-
     costo_base = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)]
+        max_digits=12, decimal_places=2, default=0.0, validators=[MinValueValidator(0)]
     )
     precio_base = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)]
+        max_digits=12, decimal_places=2, default=0.0, validators=[MinValueValidator(0)]
     )
-
     categoria = models.ForeignKey('categorias.Categoria', on_delete=models.PROTECT, blank=True, null=True)
     marca = models.ForeignKey('marcas.Marca', on_delete=models.PROTECT, blank=True, null=True)
     impuestos = models.ManyToManyField('impuestos.Impuesto', through='ServicioImpuesto', blank=True)
     imagen = models.ImageField(upload_to="servicios/imagenes/", blank=True, null=True)
     adjunto = models.FileField(upload_to="servicios/adjuntos/", blank=True, null=True)
-
     activo = models.BooleanField(default=True)
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
@@ -119,17 +116,17 @@ class Servicio(models.Model):
     def impuestos_dict(self, tipo='venta'):
         res = {}
         for sip in self.servicioimpuesto_set.filter(tipo=tipo).select_related('impuesto'):
-            res[sip.impuesto.nombre] = Decimal(str(sip.impuesto.porcentaje))
+            if sip.impuesto:  # Verificar que impuesto no sea nulo
+                res[sip.impuesto.nombre] = Decimal(str(sip.impuesto.porcentaje))
         return res
 
     def precio_base_con_impuestos(self):
-        if self.precio_base is None:
-            return None
+        precio_base = self.precio_base or Decimal('0.0')
         impuestos = self.impuestos_dict(tipo='venta')
         if not impuestos:
-            return Decimal(self.precio_base).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            return precio_base.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         total_pct = sum(impuestos.values())
-        total = Decimal(self.precio_base) * (Decimal('1') + total_pct / Decimal('100'))
+        total = precio_base * (Decimal('1') + total_pct / Decimal('100'))
         return total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 class ProductoImpuesto(models.Model):

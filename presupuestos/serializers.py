@@ -43,7 +43,7 @@ class PresupuestoSerializer(serializers.ModelSerializer):
             'estado', 'items', 'subtotal', 'iva_valor', 'total',
             'creado', 'actualizado'
         ]
-        read_only_fields = ['creado', 'actualizado', 'fecha', 'total', 'subtotal', 'iva_valor', 'numero']
+        read_only_fields = ['creado', 'actualizado', 'fecha', 'total', 'subtotal', 'iva_valor', 'numero', 'creado_por']
 
     def validate(self, data):
         items_data = self.context['request'].data.get('items', [])
