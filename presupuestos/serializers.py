@@ -33,12 +33,23 @@ class PresupuestoSerializer(serializers.ModelSerializer):
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     iva_valor = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
-    cliente_display_name = serializers.CharField(source='cliente.__str__', read_only=True)
+    #cliente_display_name = serializers.CharField(source='cliente.__str__', read_only=True)
+    #cliente_nombre = serializers.CharField(source='cliente.nombre', read_only=True)
+    cliente_nombre = serializers.SerializerMethodField()
+    def get_cliente_nombre(self, obj):
+        if obj.cliente:
+            nombre = getattr(obj.cliente, 'nombre', '')
+            apellido = getattr(obj.cliente, 'apellido', '')
+            return f"{nombre} {apellido}".strip()
+        return ''
+
+
+
 
     class Meta:
         model = Presupuesto
         fields = [
-            'id', 'cliente', 'cliente_display_name', 'fecha', 'comprobante', 'numero', 'creado_por',
+            'id', 'cliente', 'cliente_nombre', 'fecha', 'comprobante', 'numero', 'creado_por',
             'valido_hasta', 'observaciones', 'condiciones_comerciales', 'iva_porcentaje',
             'estado', 'items', 'subtotal', 'iva_valor', 'total',
             'creado', 'actualizado'

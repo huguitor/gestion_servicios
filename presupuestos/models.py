@@ -33,6 +33,7 @@ class Presupuesto(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=['comprobante'])]
+        ordering = ['-id']  # 👉 ordena automáticamente del más nuevo al más viejo
 
     def save(self, *args, **kwargs):
         # Asignar comprobante si no tiene

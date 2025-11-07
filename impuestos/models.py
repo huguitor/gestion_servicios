@@ -12,6 +12,9 @@ class Impuesto(models.Model):
         choices=[("compra", "Compra"), ("venta", "Venta"), ("ambos", "Ambos")],
         default="ambos"
     )
+    # 👇 AGREGAR ESTOS CAMPOS FALTANTES
+    creado = models.DateTimeField(auto_now_add=True)
+    actualizado = models.DateTimeField(auto_now=True)
 
     class Meta:
         indexes = [models.Index(fields=['nombre'])]
