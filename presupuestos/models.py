@@ -1,4 +1,6 @@
 # gestion/presupuestos/models.py
+import os
+import hashlib
 from django.db import models
 from django.core.validators import MinValueValidator
 from django.conf import settings
@@ -116,3 +118,204 @@ class PresupuestoItem(models.Model):
         elif self.servicio:
             return f"{self.codigo} - {self.servicio.nombre} x {self.cantidad}"
         return f"Item sin referencia (ID {self.id})"
+# presupuestos/models.py - AGREGAR al final del archivo
+
+class PresupuestoAdjunto(models.Model):
+    TIPO_CHOICES = [
+        ('plano', '📐 Planos (PDF, DWG)'),
+        ('foto', '🖼️ Fotos (referencia, ubicación)'),
+        ('diagrama', '📊 Diagramas técnicos'),
+        ('contrato', '📝 Contratos/Especificaciones'),
+        ('comunicacion', '💬 Comunicaciones relevantes'),
+        ('otro', '📎 Otros'),
+    ]
+    
+    presupuesto = models.ForeignKey(
+        Presupuesto, 
+        on_delete=models.CASCADE, 
+        related_name='adjuntos',
+        verbose_name="Presupuesto relacionado"
+    )
+    
+    archivo = models.FileField(
+        upload_to='presupuestos/adjuntos/%Y/%m/%d/',
+        verbose_name="Archivo adjunto",
+        max_length=500  # Ruta larga para organización profunda
+    )
+    
+    tipo = models.CharField(
+        max_length=20, 
+        choices=TIPO_CHOICES, 
+        default='otro',
+        verbose_name="Tipo de archivo",
+        help_text="Clasificación del archivo para organización"
+    )
+    
+    nombre_original = models.CharField(
+        max_length=255,
+        verbose_name="Nombre original del archivo",
+        help_text="Nombre original al momento de subir"
+    )
+    
+    descripcion = models.TextField(
+        max_length=1000,
+        blank=True,
+        verbose_name="Descripción detallada",
+        help_text="Descripción del contenido y propósito del archivo"
+    )
+    
+    tamaño = models.BigIntegerField(
+        verbose_name="Tamaño en bytes",
+        help_text="Tamaño del archivo en bytes"
+    )
+    
+    extension = models.CharField(
+        max_length=10,
+        verbose_name="Extensión del archivo",
+        help_text="Extensión (pdf, jpg, dwg, etc.)"
+    )
+    
+    subido_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        verbose_name="Subido por",
+        related_name='presupuesto_adjuntos_subidos',
+        null=True,
+        blank=True
+    )
+    
+    fecha_subida = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="Fecha de subida"
+    )
+    
+    fecha_modificacion = models.DateTimeField(
+        auto_now=True,
+        verbose_name="Última modificación"
+    )
+    
+    # Campos para gestión avanzada
+    es_publico = models.BooleanField(
+        default=True,
+        verbose_name="¿Es público?",
+        help_text="Si es False, solo usuarios autorizados pueden verlo"
+    )
+    
+    version = models.PositiveIntegerField(
+        default=1,
+        verbose_name="Versión del archivo",
+        help_text="Número de versión para revisiones"
+    )
+    
+    checksum = models.CharField(
+        max_length=64,
+        blank=True,
+        verbose_name="Checksum MD5",
+        help_text="Hash para verificar integridad del archivo"
+    )
+    
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Metadatos adicionales",
+        help_text="Metadatos específicos por tipo de archivo"
+    )
+
+    class Meta:
+        verbose_name = "Adjunto de presupuesto"
+        verbose_name_plural = "Adjuntos de presupuestos"
+        ordering = ['-fecha_subida', 'tipo', 'nombre_original']
+        indexes = [
+            models.Index(fields=['presupuesto', 'tipo']),
+            models.Index(fields=['presupuesto', 'fecha_subida']),
+            models.Index(fields=['tipo', 'es_publico']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(tamaño__gte=0),
+                name='tamaño_archivo_positivo'
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.nombre_original} ({self.get_tipo_display()}) - {self.presupuesto}"
+
+    def save(self, *args, **kwargs):
+        # Calcular tamaño y extensión antes de guardar
+        if self.archivo:
+            if not self.tamaño:
+                self.tamaño = self.archivo.size
+           
+            if not self.extension:
+                self.extension = self.obtener_extension()
+           
+            if not self.nombre_original:
+                self.nombre_original = os.path.basename(self.archivo.name)
+        
+        # 👇 AGREGAR ESTO: Si no hay usuario asignado y estamos en el contexto de una request
+        from django.contrib.auth.models import AnonymousUser
+        if not self.subido_por_id and hasattr(self, '_current_user'):
+            self.subido_por = self._current_user
+        elif not self.subido_por_id:
+            # Si no hay usuario disponible, usar el primer superuser o crear uno por defecto
+            try:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                default_user = User.objects.filter(is_superuser=True).first()
+                if default_user:
+                    self.subido_por = default_user
+            except:
+                pass
+       
+        super().save(*args, **kwargs)
+
+    def obtener_extension(self):
+        """Obtiene la extensión del archivo"""
+        if self.archivo:
+            return os.path.splitext(self.archivo.name)[1].lower().replace('.', '')
+        return ''
+
+    def generar_checksum(self):
+        """Genera checksum MD5 del archivo (opcional, puede ser pesado para archivos grandes)"""
+        try:
+            if self.archivo and hasattr(self.archivo, 'read'):
+                return hashlib.md5(self.archivo.read()).hexdigest()
+        except (ValueError, IOError):
+            pass
+        return ''
+
+    def get_tamaño_formateado(self):
+        """Devuelve el tamaño formateado (KB, MB, GB)"""
+        if self.tamaño == 0:
+            return "0 B"
+        
+        tamanios = ['B', 'KB', 'MB', 'GB']
+        i = 0
+        tamaño_decimal = float(self.tamaño)
+        
+        while tamaño_decimal >= 1024.0 and i < len(tamanios) - 1:
+            tamaño_decimal /= 1024.0
+            i += 1
+        
+        return f"{tamaño_decimal:.2f} {tamanios[i]}"
+
+    @property
+    def url_descarga(self):
+        """URL para descargar el archivo"""
+        return self.archivo.url if self.archivo else ''
+
+    @property
+    def puede_visualizar(self):
+        """Determina si el archivo puede ser visualizado en el navegador"""
+        extensiones_visualizables = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
+        return self.extension.lower() in extensiones_visualizables
+
+    def crear_version(self, nuevo_archivo):
+        """Crea una nueva versión del archivo"""
+        self.version += 1
+        self.archivo = nuevo_archivo
+        self.tamaño = nuevo_archivo.size
+        self.extension = self.obtener_extension()
+        self.checksum = self.generar_checksum()
+        self.save()
+

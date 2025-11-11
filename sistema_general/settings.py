@@ -138,3 +138,23 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
     ],
 }
+
+
+# Configuración generosa para archivos adjuntos
+MAX_TAMAÑO_ADJUNTO = 500 * 1024 * 1024  # 500 MB por archivo
+MAX_ADJUNTOS_POR_PRESUPUESTO = 100  # Máximo de archivos por presupuesto
+TIEMPO_SUBIDA_TIMEOUT = 300  # 5 minutos para subidas grandes
+
+# Extensiones permitidas (lista amplia)
+EXTENSIONES_PERMITIDAS = {
+    'plano': ['pdf', 'dwg', 'dxf', 'skp', 'rvt', 'ifc'],
+    'foto': ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'heic', 'tiff'],
+    'diagrama': ['pdf', 'png', 'jpg', 'jpeg', 'vsd', 'vsdx'],
+    'contrato': ['pdf', 'doc', 'docx', 'xls', 'xlsx'],
+    'comunicacion': ['pdf', 'eml', 'msg', 'txt'],
+    'otro': ['zip', 'rar', '7z', 'csv', 'json', 'xml']
+}
+
+# Configuración Django para archivos grandes
+DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB

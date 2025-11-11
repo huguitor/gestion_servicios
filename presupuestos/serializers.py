@@ -1,6 +1,8 @@
 # gestion/presupuestos/serializers.py
+import os
+from django.conf import settings
 from rest_framework import serializers
-from .models import Presupuesto, PresupuestoItem
+from .models import Presupuesto, PresupuestoItem, PresupuestoAdjunto
 from clientes.models import Cliente
 from productos.models import Producto, Servicio
 from comprobantes.models import Comprobante
@@ -134,3 +136,56 @@ class PresupuestoSerializer(serializers.ModelSerializer):
         instance.total = total
         instance.save()
         return instance
+    
+# presupuestos/serializers.py - AGREGAR al final
+
+class PresupuestoAdjuntoSerializer(serializers.ModelSerializer):
+    nombre_archivo = serializers.SerializerMethodField()
+    tamaño_formateado = serializers.SerializerMethodField()
+    url_descarga = serializers.SerializerMethodField()
+    puede_visualizar = serializers.SerializerMethodField()
+    subido_por_nombre = serializers.CharField(source='subido_por.get_full_name', read_only=True)
+    presupuesto_display = serializers.CharField(source='presupuesto.__str__', read_only=True)
+
+    class Meta:
+        model = PresupuestoAdjunto
+        fields = [
+            'id', 'presupuesto', 'presupuesto_display', 'archivo', 'tipo',
+            'nombre_original', 'nombre_archivo', 'descripcion', 'tamaño',
+            'tamaño_formateado', 'extension', 'subido_por', 'subido_por_nombre',
+            'fecha_subida', 'fecha_modificacion', 'url_descarga', 'puede_visualizar',
+            'es_publico', 'version', 'checksum', 'metadata'
+        ]
+        read_only_fields = [
+            'id', 'subido_por', 'fecha_subida', 'fecha_modificacion',
+            'tamaño', 'extension', 'nombre_original', 'checksum', 'version'
+        ]
+
+    def get_nombre_archivo(self, obj):
+        return os.path.basename(obj.archivo.name) if obj.archivo else ''
+
+    def get_tamaño_formateado(self, obj):
+        return obj.get_tamaño_formateado()
+
+    def get_url_descarga(self, obj):
+        return obj.url_descarga
+
+    def get_puede_visualizar(self, obj):
+        return obj.puede_visualizar
+
+    def validate_archivo(self, archivo):
+        """
+        Validación generosa pero segura para archivos
+        """
+        if archivo:
+            # Tamaño máximo
+            if archivo.size > settings.MAX_TAMAÑO_ADJUNTO:
+                raise serializers.ValidationError(
+                    f"El archivo es demasiado grande. Tamaño máximo: {settings.MAX_TAMAÑO_ADJUNTO / (1024*1024)} MB"
+                )
+        return archivo
+
+    def create(self, validated_data):
+        # Asignar usuario automáticamente
+        validated_data['subido_por'] = self.context['request'].user
+        return super().create(validated_data)
