@@ -9,6 +9,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api-auth/', include('rest_framework.urls')),  # Login/logout para DRF
     path('api/token/', obtain_auth_token, name='api_token'),  # Obtener token
+    # 👇 CONFIGURACIÓN GLOBAL (BASE DEL SISTEMA)
+    path('configuracion/', include('configuracion.urls')),
+    # 👇 APPS DE NEGOCIO
     path('clientes/', include('clientes.urls')),
     path('proveedores/', include('proveedores.urls')),
     path('productos/', include('productos.urls')),
