@@ -15,9 +15,7 @@ class Presupuesto(models.Model):
     creado_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     valido_hasta = models.DateField(null=True, blank=True)
     observaciones = models.TextField(blank=True)
-    condiciones_comerciales = models.TextField(
-        default="Precios expresados en pesos Argentinos\nPlazo de entrega: Inmediata\nForma de Pago: 30 días\nMantenimiento de oferta: 15 días"
-    )
+    condiciones_comerciales = models.TextField(null=True, blank=True)
     iva_porcentaje = models.DecimalField(max_digits=5, decimal_places=2, default=21.00)
     estado = models.CharField(
         max_length=20,
@@ -83,24 +81,24 @@ class PresupuestoItem(models.Model):
         ]
 
     def save(self, *args, **kwargs):
-        # Llenar automáticamente código, descripción y precio
-        if self.producto:
-            self.codigo = self.producto.sku or ''
-            self.descripcion = self.producto.nombre
-            self.precio_unitario = self.producto.precio_venta or Decimal('0.00')
-        elif self.servicio:
-            self.codigo = self.servicio.codigo_interno or ''
-            self.descripcion = self.servicio.nombre
-            if not self.precio_unitario or self.precio_unitario == 0:
+        # Solo rellenar precio en creación
+        if not self.pk and self.precio_unitario in (None, Decimal('0.00'), 0):
+            if self.producto:
+                self.codigo = self.producto.sku or ''
+                self.descripcion = self.producto.nombre
+                self.precio_unitario = self.producto.precio_venta or Decimal('0.00')
+            elif self.servicio:
+                self.codigo = self.servicio.codigo_interno or ''
+                self.descripcion = self.servicio.nombre
                 self.precio_unitario = self.servicio.precio_base or Decimal('0.00')
 
-        # Sumar cantidades si ya existe item igual
-        if not kwargs.get('force_insert', False):
+        # Agrupación solo en creación
+        if not self.pk and not kwargs.get('force_insert', False):
             existente = PresupuestoItem.objects.filter(
                 presupuesto=self.presupuesto,
                 producto=self.producto,
                 servicio=self.servicio
-            ).exclude(pk=self.pk).first()
+            ).first()
             if existente:
                 existente.cantidad += self.cantidad
                 existente.save()

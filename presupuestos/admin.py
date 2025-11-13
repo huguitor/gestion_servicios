@@ -7,7 +7,7 @@ class PresupuestoItemInline(admin.TabularInline):
     model = PresupuestoItem
     extra = 0
     fields = ('producto', 'servicio', 'cantidad', 'precio_unitario', 'codigo', 'descripcion')
-    readonly_fields = ('codigo', 'descripcion', 'precio_unitario')
+    readonly_fields = ('codigo', 'descripcion')
     show_change_link = True
 
 class PresupuestoAdjuntoInline(admin.TabularInline):

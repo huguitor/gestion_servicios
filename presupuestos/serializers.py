@@ -7,13 +7,15 @@ from clientes.models import Cliente
 from productos.models import Producto, Servicio
 from comprobantes.models import Comprobante
 from decimal import Decimal, ROUND_HALF_UP
+from django.db import transaction
 
 class PresupuestoItemSerializer(serializers.ModelSerializer):
     producto = serializers.PrimaryKeyRelatedField(queryset=Producto.objects.all(), allow_null=True)
     servicio = serializers.PrimaryKeyRelatedField(queryset=Servicio.objects.all(), allow_null=True)
-    codigo = serializers.CharField(max_length=50, allow_blank=True, read_only=True)
-    descripcion = serializers.CharField(max_length=255, allow_blank=True, read_only=True)
-    precio_unitario = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+    codigo = serializers.CharField(max_length=50, allow_blank=True, required=False)
+    descripcion = serializers.CharField(max_length=255, allow_blank=True, required=False)
+    precio_unitario = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False)
 
     class Meta:
         model = PresupuestoItem
@@ -123,18 +125,43 @@ class PresupuestoSerializer(serializers.ModelSerializer):
         presupuesto.save()
         return presupuesto
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         items_data = validated_data.pop('items', [])
         instance = super().update(instance, validated_data)
-        instance.items.all().delete()
-        subtotal = self._crear_actualizar_items(instance, items_data)
-        iva_valor = (subtotal * Decimal(instance.iva_porcentaje) / 100).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        total = (subtotal + iva_valor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
+        existing_ids = []
+
+        for item_data in items_data:
+            item_id = item_data.get('id')
+
+            if item_id:
+                try:
+                    item = PresupuestoItem.objects.get(id=item_id, presupuesto=instance)
+                    for attr, value in item_data.items():
+                        if attr != 'id':
+                            # Solo actualizar si el valor tiene contenido
+                            if value not in ('', None, [], {}):
+                                setattr(item, attr, value)
+                            # Si es vacío → mantener valor actual
+                    item.save()
+                    existing_ids.append(item_id)
+                except PresupuestoItem.DoesNotExist:
+                    item_data.pop('id', None)
+                    new_item = PresupuestoItem.objects.create(presupuesto=instance, **item_data)
+                    existing_ids.append(new_item.id)
+            else:
+                new_item = PresupuestoItem.objects.create(presupuesto=instance, **item_data)
+                existing_ids.append(new_item.id)
+
+        instance.items.exclude(id__in=existing_ids).delete()
+
+        subtotal = sum(item.cantidad * item.precio_unitario for item in instance.items.all())
         instance.subtotal = subtotal
-        instance.iva_valor = iva_valor
-        instance.total = total
+        instance.iva_valor = subtotal * (instance.iva_porcentaje / 100)
+        instance.total = subtotal + instance.iva_valor
         instance.save()
+
         return instance
     
 # presupuestos/serializers.py - AGREGAR al final
