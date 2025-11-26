@@ -1,7 +1,9 @@
-# gestion/presupuestos/admin.py - VERSIÓN DEFINITIVA
+# gestion/presupuestos/admin.py
 from django.contrib import admin
 from decimal import Decimal
+from django.utils import timezone
 from .models import Presupuesto, PresupuestoItem, PresupuestoAdjunto
+
 
 class PresupuestoItemInline(admin.TabularInline):
     model = PresupuestoItem
@@ -10,19 +12,42 @@ class PresupuestoItemInline(admin.TabularInline):
     readonly_fields = ('codigo', 'descripcion')
     show_change_link = True
 
+
 class PresupuestoAdjuntoInline(admin.TabularInline):
     model = PresupuestoAdjunto
     extra = 0
     fields = ('archivo', 'tipo', 'descripcion')
     show_change_link = True
 
+
 @admin.register(Presupuesto)
 class PresupuestoAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'cliente', 'numero', 'estado', 'subtotal', 'iva_valor', 'total')
+    list_display = ('__str__', 'cliente', 'numero', 'estado', 'subtotal', 'iva_valor', 'total', 'fecha_anulacion')
     inlines = [PresupuestoItemInline, PresupuestoAdjuntoInline]
     search_fields = ('cliente__nombre', 'numero')
-    list_filter = ('estado',)
-    readonly_fields = ('subtotal', 'iva_valor', 'total')
+    list_filter = ('estado', 'fecha_anulacion')
+    readonly_fields = ('subtotal', 'iva_valor', 'total', 'anulado_por', 'fecha_anulacion', 'motivo_anulacion', 'fecha', 'creado', 'actualizado')
+    
+    fieldsets = (
+        ('Información Principal', {
+            'fields': ('cliente', 'comprobante', 'numero', 'estado', 'creado_por')
+        }),
+        ('Fechas y Validez', {
+            'fields': ('fecha', 'valido_hasta', 'creado', 'actualizado')
+        }),
+        ('Detalles Comerciales', {
+            'fields': ('observaciones', 'condiciones_comerciales', 'iva_porcentaje')
+        }),
+        ('Totales', {
+            'fields': ('subtotal', 'iva_valor', 'total')
+        }),
+        ('Información de Anulación', {
+            'fields': ('anulado_por', 'fecha_anulacion', 'motivo_anulacion'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    actions = ['anular_presupuestos']
 
     def save_formset(self, request, form, formset, change):
         """
@@ -54,6 +79,21 @@ class PresupuestoAdmin(admin.ModelAdmin):
         obj.iva_valor = subtotal * (Decimal(obj.iva_porcentaje) / 100)
         obj.total = obj.subtotal + obj.iva_valor
         obj.save()
+    
+    def anular_presupuestos(self, request, queryset):
+        """
+        Acción para anular múltiples presupuestos
+        """
+        for presupuesto in queryset:
+            if presupuesto.estado != 'anulado':
+                try:
+                    presupuesto.anular(request.user, "Anulado desde admin")
+                except Exception as e:
+                    self.message_user(request, f"Error anulando {presupuesto}: {str(e)}", level='error')
+        
+        self.message_user(request, f"{queryset.count()} presupuestos anulados correctamente")
+    anular_presupuestos.short_description = "Anular presupuestos seleccionados"
+
 
 @admin.register(PresupuestoAdjunto)
 class PresupuestoAdjuntoAdmin(admin.ModelAdmin):

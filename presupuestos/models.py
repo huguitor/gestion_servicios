@@ -5,8 +5,10 @@ from django.db import models
 from django.core.validators import MinValueValidator
 from django.conf import settings
 from decimal import Decimal, ROUND_HALF_UP
+from django.utils import timezone
 from comprobantes.models import Comprobante
 from django.core.exceptions import ValidationError
+
 
 class Presupuesto(models.Model):
     cliente = models.ForeignKey("clientes.Cliente", on_delete=models.PROTECT)
@@ -19,12 +21,22 @@ class Presupuesto(models.Model):
     iva_porcentaje = models.DecimalField(max_digits=5, decimal_places=2, default=21.00)
     estado = models.CharField(
         max_length=20,
-        choices=[("borrador", "Borrador"), ("enviado", "Enviado"), ("aceptado", "Aceptado"), ("rechazado", "Rechazado")],
+        choices=[("borrador", "Borrador"), ("enviado", "Enviado"), ("aceptado", "Aceptado"), ("rechazado", "Rechazado"), ("anulado", "Anulado")],
         default="borrador"
     )
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
     numero = models.PositiveIntegerField(null=True, blank=True)
+    
+    # Campos para auditoría de anulación
+    anulado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.PROTECT, 
+        null=True, blank=True,
+        related_name='presupuestos_anulados'
+    )
+    fecha_anulacion = models.DateTimeField(null=True, blank=True)
+    motivo_anulacion = models.TextField(blank=True)
 
     # Campos reales en BD para Admin y serializer
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -35,7 +47,23 @@ class Presupuesto(models.Model):
         indexes = [models.Index(fields=['comprobante'])]
         ordering = ['-id']  # 👉 ordena automáticamente del más nuevo al más viejo
 
+    def clean(self):
+        """Validación de transiciones de estado"""
+        if self.pk and self.estado == 'anulado':
+            try:
+                original = Presupuesto.objects.get(pk=self.pk)
+                if original.estado in ['aceptado', 'rechazado']:
+                    raise ValidationError(
+                        f"No se puede anular un presupuesto que ya está {original.estado}"
+                    )
+            except Presupuesto.DoesNotExist:
+                pass  # Es una creación nueva
+
     def save(self, *args, **kwargs):
+        # Validar transiciones de estado
+        if self.pk:  # Solo validar en actualizaciones
+            self.clean()
+        
         # Asignar comprobante si no tiene
         if not self.comprobante:
             comprobante = Comprobante.objects.filter(tipo="PRES").first()
@@ -48,6 +76,10 @@ class Presupuesto(models.Model):
             ultimo = Presupuesto.objects.filter(comprobante=self.comprobante).order_by('-numero').first()
             self.numero = (ultimo.numero + 1) if ultimo and ultimo.numero else self.comprobante.numero_comienzo
 
+        # Validar que no exceda el rango máximo permitido por el comprobante
+        if self.comprobante and self.numero > self.comprobante.numero_final:
+            raise ValidationError(f"No se puede generar el presupuesto. El número {self.numero} excede el límite permitido ({self.comprobante.numero_final}) para este talonario.")
+
         # Calcular subtotal, IVA y total si ya existen items
         if self.pk:  # solo si es actualización
             self.subtotal = sum((item.subtotal for item in self.items.all()), Decimal('0.00'))
@@ -59,7 +91,22 @@ class Presupuesto(models.Model):
     def __str__(self):
         serie = self.comprobante.serie if self.comprobante else "??"
         numero = f"{self.numero:06d}" if self.numero else "??????"
-        return f"Presupuesto {serie}-{numero} - {self.cliente}"
+        estado_str = f" - {self.estado.upper()}" if self.estado == 'anulado' else ""
+        return f"Presupuesto {serie}-{numero} - {self.cliente}{estado_str}"
+
+    def anular(self, usuario, motivo=""):
+        """Método para anular el presupuesto"""
+        if self.estado == 'anulado':
+            raise ValidationError("El presupuesto ya está anulado")
+        
+        if self.estado in ['aceptado', 'rechazado']:
+            raise ValidationError(f"No se puede anular un presupuesto que ya está {self.estado}")
+        
+        self.estado = 'anulado'
+        self.anulado_por = usuario
+        self.fecha_anulacion = timezone.now()
+        self.motivo_anulacion = motivo
+        self.save()
 
 
 class PresupuestoItem(models.Model):
@@ -116,7 +163,7 @@ class PresupuestoItem(models.Model):
         elif self.servicio:
             return f"{self.codigo} - {self.servicio.nombre} x {self.cantidad}"
         return f"Item sin referencia (ID {self.id})"
-# presupuestos/models.py - AGREGAR al final del archivo
+
 
 class PresupuestoAdjunto(models.Model):
     TIPO_CHOICES = [
@@ -127,52 +174,52 @@ class PresupuestoAdjunto(models.Model):
         ('comunicacion', '💬 Comunicaciones relevantes'),
         ('otro', '📎 Otros'),
     ]
-    
+   
     presupuesto = models.ForeignKey(
-        Presupuesto, 
-        on_delete=models.CASCADE, 
+        Presupuesto,
+        on_delete=models.CASCADE,
         related_name='adjuntos',
         verbose_name="Presupuesto relacionado"
     )
-    
+   
     archivo = models.FileField(
         upload_to='presupuestos/adjuntos/%Y/%m/%d/',
         verbose_name="Archivo adjunto",
         max_length=500  # Ruta larga para organización profunda
     )
-    
+   
     tipo = models.CharField(
-        max_length=20, 
-        choices=TIPO_CHOICES, 
+        max_length=20,
+        choices=TIPO_CHOICES,
         default='otro',
         verbose_name="Tipo de archivo",
         help_text="Clasificación del archivo para organización"
     )
-    
+   
     nombre_original = models.CharField(
         max_length=255,
         verbose_name="Nombre original del archivo",
         help_text="Nombre original al momento de subir"
     )
-    
+   
     descripcion = models.TextField(
         max_length=1000,
         blank=True,
         verbose_name="Descripción detallada",
         help_text="Descripción del contenido y propósito del archivo"
     )
-    
+   
     tamaño = models.BigIntegerField(
         verbose_name="Tamaño en bytes",
         help_text="Tamaño del archivo en bytes"
     )
-    
+   
     extension = models.CharField(
         max_length=10,
         verbose_name="Extensión del archivo",
         help_text="Extensión (pdf, jpg, dwg, etc.)"
     )
-    
+   
     subido_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -181,37 +228,37 @@ class PresupuestoAdjunto(models.Model):
         null=True,
         blank=True
     )
-    
+   
     fecha_subida = models.DateTimeField(
         auto_now_add=True,
         verbose_name="Fecha de subida"
     )
-    
+   
     fecha_modificacion = models.DateTimeField(
         auto_now=True,
         verbose_name="Última modificación"
     )
-    
+   
     # Campos para gestión avanzada
     es_publico = models.BooleanField(
         default=True,
         verbose_name="¿Es público?",
         help_text="Si es False, solo usuarios autorizados pueden verlo"
     )
-    
+   
     version = models.PositiveIntegerField(
         default=1,
         verbose_name="Versión del archivo",
         help_text="Número de versión para revisiones"
     )
-    
+   
     checksum = models.CharField(
         max_length=64,
         blank=True,
         verbose_name="Checksum MD5",
         help_text="Hash para verificar integridad del archivo"
     )
-    
+   
     metadata = models.JSONField(
         default=dict,
         blank=True,
@@ -249,7 +296,7 @@ class PresupuestoAdjunto(models.Model):
            
             if not self.nombre_original:
                 self.nombre_original = os.path.basename(self.archivo.name)
-        
+       
         # 👇 AGREGAR ESTO: Si no hay usuario asignado y estamos en el contexto de una request
         from django.contrib.auth.models import AnonymousUser
         if not self.subido_por_id and hasattr(self, '_current_user'):
@@ -286,15 +333,15 @@ class PresupuestoAdjunto(models.Model):
         """Devuelve el tamaño formateado (KB, MB, GB)"""
         if self.tamaño == 0:
             return "0 B"
-        
+       
         tamanios = ['B', 'KB', 'MB', 'GB']
         i = 0
         tamaño_decimal = float(self.tamaño)
-        
+       
         while tamaño_decimal >= 1024.0 and i < len(tamanios) - 1:
             tamaño_decimal /= 1024.0
             i += 1
-        
+       
         return f"{tamaño_decimal:.2f} {tamanios[i]}"
 
     @property
@@ -316,4 +363,3 @@ class PresupuestoAdjunto(models.Model):
         self.extension = self.obtener_extension()
         self.checksum = self.generar_checksum()
         self.save()
-

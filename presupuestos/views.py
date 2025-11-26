@@ -4,16 +4,76 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Sum, Count
+from django.utils import timezone
 from .models import Presupuesto, PresupuestoAdjunto
 from .serializers import PresupuestoSerializer, PresupuestoAdjuntoSerializer
+
 
 class PresupuestoViewSet(viewsets.ModelViewSet):
     queryset = Presupuesto.objects.all()
     serializer_class = PresupuestoSerializer
     permission_classes = [IsAuthenticated]
-    
+   
+    def get_queryset(self):
+        queryset = Presupuesto.objects.all()
+        
+        # Excluir anulados por defecto (opcional)
+        if not self.request.query_params.get('incluir_anulados'):
+            queryset = queryset.exclude(estado='anulado')
+        
+        return queryset
+
     def perform_create(self, serializer):
         serializer.save(creado_por=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def anular(self, request, pk=None):
+        """
+        Anular un presupuesto
+        """
+        presupuesto = self.get_object()
+        motivo = request.data.get('motivo', '')
+        
+        try:
+            presupuesto.anular(request.user, motivo)
+            serializer = self.get_serializer(presupuesto)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=False, methods=['get'])
+    def presupuestos_anulados(self, request):
+        """
+        Listar solo presupuestos anulados
+        """
+        anulados = Presupuesto.objects.filter(estado='anulado')
+        page = self.paginate_queryset(anulados)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        
+        serializer = self.get_serializer(anulados, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def estadisticas(self, request):
+        """
+        Estadísticas de presupuestos
+        """
+        total = Presupuesto.objects.count()
+        por_estado = Presupuesto.objects.values('estado').annotate(
+            count=Count('id'),
+            total_monto=Sum('total')
+        )
+        
+        return Response({
+            'total': total,
+            'por_estado': list(por_estado)
+        })
+
 
 class PresupuestoAdjuntoViewSet(viewsets.ModelViewSet):
     queryset = PresupuestoAdjunto.objects.all()
@@ -24,17 +84,17 @@ class PresupuestoAdjuntoViewSet(viewsets.ModelViewSet):
         queryset = PresupuestoAdjunto.objects.select_related(
             'presupuesto', 'subido_por'
         )
-        
+       
         # Filtrar por presupuesto si viene en la URL
         presupuesto_pk = self.kwargs.get('presupuesto_pk')
         if presupuesto_pk:
             queryset = queryset.filter(presupuesto_id=presupuesto_pk)
-        
+       
         # Filtros adicionales por query params
         tipo = self.request.query_params.get('tipo')
         if tipo:
             queryset = queryset.filter(tipo=tipo)
-        
+       
         return queryset
 
     def perform_create(self, serializer):
@@ -61,7 +121,7 @@ class PresupuestoAdjuntoViewSet(viewsets.ModelViewSet):
                 'count': count,
                 'icono': tipo_label.split(' ')[0]  # Emoji del icono
             })
-        
+       
         return Response(tipos)
 
     @action(detail=False, methods=['get'])
@@ -70,7 +130,7 @@ class PresupuestoAdjuntoViewSet(viewsets.ModelViewSet):
         Estadísticas de uso de adjuntos
         """
         queryset = self.get_queryset()
-        
+       
         stats = {
             'total_archivos': queryset.count(),
             'tamaño_total': queryset.aggregate(total=Sum('tamaño'))['total'] or 0,
@@ -79,7 +139,7 @@ class PresupuestoAdjuntoViewSet(viewsets.ModelViewSet):
                 tamaño_total=Sum('tamaño')
             ))
         }
-        
+       
         return Response(stats)
 
     @action(detail=True, methods=['post'])
@@ -89,19 +149,19 @@ class PresupuestoAdjuntoViewSet(viewsets.ModelViewSet):
         """
         adjunto = self.get_object()
         nuevo_archivo = request.FILES.get('archivo')
-        
+       
         if not nuevo_archivo:
             return Response(
-                {'error': 'No se proporcionó un nuevo archivo'}, 
+                {'error': 'No se proporcionó un nuevo archivo'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+       
         # Actualizar el archivo y recalcular campos
         adjunto.archivo = nuevo_archivo
         adjunto.tamaño = nuevo_archivo.size
         adjunto.extension = adjunto.obtener_extension()
         adjunto.version += 1
         adjunto.save()
-        
+       
         serializer = self.get_serializer(adjunto)
         return Response(serializer.data)

@@ -9,6 +9,7 @@ from comprobantes.models import Comprobante
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 
+
 class PresupuestoItemSerializer(serializers.ModelSerializer):
     producto = serializers.PrimaryKeyRelatedField(queryset=Producto.objects.all(), allow_null=True)
     servicio = serializers.PrimaryKeyRelatedField(queryset=Servicio.objects.all(), allow_null=True)
@@ -37,9 +38,14 @@ class PresupuestoSerializer(serializers.ModelSerializer):
     total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     iva_valor = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
-    #cliente_display_name = serializers.CharField(source='cliente.__str__', read_only=True)
-    #cliente_nombre = serializers.CharField(source='cliente.nombre', read_only=True)
+    
+    # Campos para auditoría de anulación
+    anulado_por_nombre = serializers.CharField(source='anulado_por.get_full_name', read_only=True)
+    fecha_anulacion = serializers.DateTimeField(read_only=True)
+    motivo_anulacion = serializers.CharField(read_only=True)
+    
     cliente_nombre = serializers.SerializerMethodField()
+    
     def get_cliente_nombre(self, obj):
         if obj.cliente:
             nombre = getattr(obj.cliente, 'nombre', '')
@@ -47,18 +53,19 @@ class PresupuestoSerializer(serializers.ModelSerializer):
             return f"{nombre} {apellido}".strip()
         return ''
 
-
-
-
     class Meta:
         model = Presupuesto
         fields = [
             'id', 'cliente', 'cliente_nombre', 'fecha', 'comprobante', 'numero', 'creado_por',
             'valido_hasta', 'observaciones', 'condiciones_comerciales', 'iva_porcentaje',
             'estado', 'items', 'subtotal', 'iva_valor', 'total',
-            'creado', 'actualizado'
+            'creado', 'actualizado', 'anulado_por', 'anulado_por_nombre', 
+            'fecha_anulacion', 'motivo_anulacion'
         ]
-        read_only_fields = ['creado', 'actualizado', 'fecha', 'total', 'subtotal', 'iva_valor', 'numero', 'creado_por']
+        read_only_fields = [
+            'creado', 'actualizado', 'fecha', 'total', 'subtotal', 'iva_valor', 
+            'numero', 'creado_por', 'anulado_por', 'fecha_anulacion'
+        ]
 
     def validate(self, data):
         items_data = self.context['request'].data.get('items', [])
@@ -163,8 +170,7 @@ class PresupuestoSerializer(serializers.ModelSerializer):
         instance.save()
 
         return instance
-    
-# presupuestos/serializers.py - AGREGAR al final
+
 
 class PresupuestoAdjuntoSerializer(serializers.ModelSerializer):
     nombre_archivo = serializers.SerializerMethodField()
