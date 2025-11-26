@@ -7,6 +7,18 @@ class ConfiguracionGlobal(models.Model):
    
     # 👇 DATOS BÁSICOS DE EMPRESA
     nombre_empresa = models.CharField(max_length=200, default="Mi Empresa S.A.")
+    nombre_fantasia = models.CharField(
+        max_length=200, 
+        default="Empresa de Servicios",
+        verbose_name="Nombre Fantasía",
+        help_text="Nombre comercial que se muestra en el login"
+    )
+    descripcion_sistema = models.CharField(
+        max_length=100,
+        default="Sistema de Gestión Comercial",
+        verbose_name="Descripción del Sistema", 
+        help_text="Texto descriptivo que aparece debajo del nombre"
+    )
     cuit = models.CharField(max_length=20, blank=True, default="")
     direccion = models.TextField(blank=True, default="")
     telefono = models.CharField(max_length=50, blank=True, default="")

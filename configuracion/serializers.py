@@ -23,7 +23,7 @@ class ConfiguracionGlobalSerializer(serializers.ModelSerializer):
         model = ConfiguracionGlobal
         fields = [
             # Datos básicos
-            'id', 'nombre_empresa', 'cuit', 'direccion', 'telefono', 'email', 'pagina_web',
+            'id', 'nombre_empresa', 'nombre_fantasia', 'descripcion_sistema', 'cuit', 'direccion', 'telefono', 'email', 'pagina_web',
             
             # Campos de imágenes (archivos)
             'logo_principal', 'logo_favicon', 'logo_tkinter',

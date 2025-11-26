@@ -31,6 +31,17 @@ class ConfiguracionService:
         }
     
     @staticmethod
+    def obtener_config_login():
+        """Obtener configuración específica para el login de Tkinter"""
+        config = ConfiguracionService.obtener_configuracion()
+        return {
+            'nombre_empresa': config.nombre_empresa,
+            'nombre_fantasia': config.nombre_fantasia,
+            'descripcion_sistema': config.descripcion_sistema,
+            'logo_url': config.logo_tkinter_url,  # Usamos el logo tkinter existente
+        }
+    
+    @staticmethod
     def obtener_logos_para_pdf():
         """Obtener todas las imágenes para PDFs"""
         config = ConfiguracionService.obtener_configuracion()

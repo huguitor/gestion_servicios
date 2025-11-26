@@ -4,14 +4,14 @@ from .models import ConfiguracionGlobal
 
 @admin.register(ConfiguracionGlobal)
 class ConfiguracionGlobalAdmin(admin.ModelAdmin):
-    list_display = ('nombre_empresa', 'cuit', 'activo', 'creado', 'actualizado')
+    list_display = ('nombre_empresa', 'nombre_fantasia', 'descripcion_sistema', 'activo', 'creado', 'actualizado')
     list_filter = ('activo', 'pais', 'moneda')
-    search_fields = ('nombre_empresa', 'cuit', 'email')
+    search_fields = ('nombre_empresa', 'nombre_fantasia', 'cuit', 'email')
    
     fieldsets = (
         ('📋 Datos de la Empresa', {
             'fields': (
-                'nombre_empresa', 'cuit', 'direccion',
+                'nombre_empresa', 'nombre_fantasia', 'descripcion_sistema', 'cuit', 'direccion',
                 'telefono', 'email', 'pagina_web'
             )
         }),
@@ -37,7 +37,7 @@ class ConfiguracionGlobalAdmin(admin.ModelAdmin):
                 'logo_tkinter',
                 ('logo_tkinter_ancho', 'logo_tkinter_alto', 'logo_tkinter_proporcion'),
             ),
-            'description': 'Logo para reemplazar icono por defecto de Tkinter'
+            'description': 'Logo para reemplazar icono por defecto de Tkinter (se usa en el login)'
         }),
         
         ('📢 Imágenes Publicitarias - Imagen 1', {

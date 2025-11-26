@@ -2,10 +2,12 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.throttling import AnonRateThrottle
 from .models import ConfiguracionGlobal
 from .serializers import ConfiguracionGlobalSerializer
 from .services import ConfiguracionService
+
 
 class ConfiguracionGlobalViewSet(viewsets.ModelViewSet):
     queryset = ConfiguracionGlobal.objects.all()
@@ -33,6 +35,27 @@ class ConfiguracionGlobalViewSet(viewsets.ModelViewSet):
         """Obtener solo datos de la empresa (para otras apps)"""
         datos = ConfiguracionService.obtener_datos_empresa()
         return Response(datos)
+    
+    @action(detail=False, methods=['get'], 
+            permission_classes=[AllowAny],
+            throttle_classes=[AnonRateThrottle])  # 👈 PÚBLICO PERO CON RATE LIMIT
+    def config_login(self, request):
+        """Obtener configuración pública para login - SOLO INFO NO SENSIBLE"""
+        config_data = ConfiguracionService.obtener_config_login()
+        
+        # 👇 FILTRAR SOLO CAMPOS PÚBLICOS - NO DATOS SENSIBLES
+        public_data = {
+            'nombre_fantasia': config_data.get('nombre_fantasia'),
+            'descripcion_sistema': config_data.get('descripcion_sistema'),
+            'logo_url': config_data.get('logo_url'),
+        }
+        
+        # 👇 AGREGAR URL ABSOLUTA SI HAY LOGO
+        if request and public_data.get('logo_url'):
+            public_data['logo_absolute_url'] = request.build_absolute_uri(public_data['logo_url'])
+        
+        print(f"🔐 Configuración login pública enviada: {public_data}")
+        return Response(public_data)
     
     @action(detail=False, methods=['get'])
     def config_presupuestos(self, request):
