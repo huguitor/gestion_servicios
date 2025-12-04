@@ -71,14 +71,22 @@ class Presupuesto(models.Model):
                 raise ValidationError("No hay comprobante de tipo PRES configurado.")
             self.comprobante = comprobante
 
-        # Asignar número si no tiene
+        # ⭐⭐ NUEVA LÓGICA SIMPLE PARA NUMERACIÓN (REEMPLAZA LA VIEJA)
         if not self.numero:
-            ultimo = Presupuesto.objects.filter(comprobante=self.comprobante).order_by('-numero').first()
-            self.numero = (ultimo.numero + 1) if ultimo and ultimo.numero else self.comprobante.numero_comienzo
-
-        # Validar que no exceda el rango máximo permitido por el comprobante
-        if self.comprobante and self.numero > self.comprobante.numero_final:
-            raise ValidationError(f"No se puede generar el presupuesto. El número {self.numero} excede el límite permitido ({self.comprobante.numero_final}) para este talonario.")
+            # 1. Usar el próximo número configurado en el comprobante
+            self.numero = self.comprobante.proximo_numero
+            
+            # 2. Validar que no exceda el límite actual
+            if self.numero > self.comprobante.numero_final:
+                raise ValidationError(
+                    f"❌ Límite de numeración alcanzado ({self.comprobante.numero_final}).\n"
+                    f"Quedan 0 números disponibles.\n"
+                    f"Por favor, amplía el rango en Configuración → Comprobantes."
+                )
+            
+            # 3. ACTUALIZAR el próximo número para futuros presupuestos
+            self.comprobante.proximo_numero += 1
+            self.comprobante.save()
 
         # Calcular subtotal, IVA y total si ya existen items
         if self.pk:  # solo si es actualización
@@ -107,6 +115,14 @@ class Presupuesto(models.Model):
         self.fecha_anulacion = timezone.now()
         self.motivo_anulacion = motivo
         self.save()
+
+    # ⭐ MÉTODO ÚTIL PARA VERIFICAR DISPONIBILIDAD
+    @property
+    def numeros_disponibles_restantes(self):
+        """Muestra cuántos números quedan después de este presupuesto"""
+        if self.comprobante:
+            return self.comprobante.numeros_disponibles - 1  # -1 porque este ya usó uno
+        return 0
 
 
 class PresupuestoItem(models.Model):

@@ -1,20 +1,24 @@
-# sistema_general/settings.py
+# gestion/sistema_general/settings.py
 import sys
 import os
 from pathlib import Path
 from corsheaders.defaults import default_headers
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+# ========== CONFIGURACIÓN PARA .EXE Y DESARROLLO ==========
 if getattr(sys, 'frozen', False):
-    # Si estamos en el ejecutable (PyInstaller)
-    # BASE_DIR: Carpeta temporal donde se descomprime el código y estáticos (_MEIxxxx)
-    BASE_DIR = Path(sys._MEIPASS)
-    # DATA_DIR: Carpeta donde está el .exe (para guardar DB y media persistentes)
-    DATA_DIR = Path(sys.executable).parent
+    # MODO .EXE (PyInstaller)
+    BASE_DIR = Path(sys._MEIPASS)  # Carpeta temporal del .exe
+    DATA_DIR = Path(sys.executable).parent  # Carpeta donde está el .exe
+    print("⚙️  MODO .EXE DETECTADO")  # ✅ Este print SÍ va en el .exe
 else:
-    # Modo desarrollo normal
-    BASE_DIR = Path(__file__).resolve().parent.parent
-    DATA_DIR = BASE_DIR
+    # MODO DESARROLLO (runserver)
+    BASE_DIR = Path(__file__).resolve().parent.parent  # Tu proyecto
+    DATA_DIR = BASE_DIR  # Misma carpeta que el proyecto
+
+# Crear carpeta 'data' para persistencia (base de datos y media)
+DATA_DIR_ABS = DATA_DIR / 'data'
+DATA_DIR_ABS.mkdir(exist_ok=True)
+# ==========================================================
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -96,13 +100,14 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'sistema_general.wsgi.application'
 
-# Database
+# ========== BASE DE DATOS PERSISTENTE ==========
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': DATA_DIR / 'db.sqlite3',
+        'NAME': str(DATA_DIR_ABS / 'database.sqlite3'),  # data/database.sqlite3
     }
 }
+# ===============================================
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
@@ -126,13 +131,15 @@ TIME_ZONE = 'America/Argentina/Buenos_Aires'
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
+# ========== ARCHIVOS ESTÁTICOS Y MEDIA ==========
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+# Media files (archivos subidos por usuarios) - PERSISTENTES
 MEDIA_URL = '/media/'
-MEDIA_ROOT = DATA_DIR / 'media'
+MEDIA_ROOT = os.path.join(DATA_DIR_ABS, 'media')
+# ================================================
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -170,3 +177,9 @@ EXTENSIONES_PERMITIDAS = {
 # Configuración Django para archivos grandes
 DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
+
+# ========== DEBUG INFO SOLO CUANDO SE EJECUTA ==========
+# Esto se ejecuta cuando Django inicia, NO al compilar
+if __name__ == "__main__" or getattr(sys, 'frozen', False):
+    print(f"🔧 MEDIA_ROOT configurado en: {MEDIA_ROOT}")
+    print(f"🔧 DATA_DIR_ABS: {DATA_DIR_ABS}")
