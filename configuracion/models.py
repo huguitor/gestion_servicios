@@ -176,6 +176,13 @@ Mantenimiento de oferta: 15 días"""
     )
     iva_por_defecto = models.DecimalField(max_digits=5, decimal_places=2, default=21.00)
     dias_validez_presupuesto = models.PositiveIntegerField(default=30)
+    
+    # ⭐⭐ NUEVO CAMPO: Control de numeración de presupuestos (sincronizado con Comprobante)
+    proximo_numero_presupuesto = models.IntegerField(
+        default=1,
+        verbose_name="Próximo número de presupuesto",
+        help_text="Próximo número que se usará para presupuestos. Se sincroniza automáticamente con Comprobante → Próximo número"
+    )
    
     # 👇 CONFIGURACIÓN GENERAL
     moneda = models.CharField(max_length=10, default="ARS", choices=[('ARS', 'Pesos Argentinos'), ('USD', 'Dólares')])
@@ -200,7 +207,70 @@ Mantenimiento de oferta: 15 días"""
         if self.pk:
             self.procesar_imagenes_existentes()
         
+        # Guardar primero
         super().save(*args, **kwargs)
+        
+        # ⭐⭐ LUEGO SINCRONIZAR CON COMPROBANTE (si se cambió el próximo número)
+        if hasattr(self, 'proximo_numero_presupuesto'):
+            self.sincronizar_con_comprobante()
+    
+    # ⭐⭐ NUEVO MÉTODO: Sincronizar con Comprobante
+    def sincronizar_con_comprobante(self):
+        """Sincroniza el próximo número con el Comprobante activo de tipo PRES"""
+        try:
+            from comprobantes.models import Comprobante
+            
+            # Obtener el comprobante de tipo PRES (presupuesto)
+            comprobante = Comprobante.objects.filter(tipo="PRES").first()
+            if comprobante:
+                # Solo actualizar si el valor es diferente
+                if comprobante.proximo_numero != self.proximo_numero_presupuesto:
+                    comprobante.proximo_numero = self.proximo_numero_presupuesto
+                    comprobante.save()
+                    print(f"✅ Sincronizado: Configuración({self.proximo_numero_presupuesto}) → Comprobante({comprobante.proximo_numero})")
+                else:
+                    print(f"✅ Ya sincronizado: Ambos tienen valor {self.proximo_numero_presupuesto}")
+                return True
+            else:
+                print("⚠️ No hay comprobante PRES para sincronizar")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error sincronizando con comprobante: {e}")
+            return False
+    
+    # ⭐⭐ NUEVO MÉTODO: Obtener estado de sincronización
+    def estado_sincronizacion_numeracion(self):
+        """Obtiene el estado de sincronización con Comprobante"""
+        try:
+            from comprobantes.models import Comprobante
+            
+            comprobante = Comprobante.objects.filter(tipo="PRES").first()
+            if not comprobante:
+                return {
+                    'sincronizado': False,
+                    'mensaje': 'No hay comprobante PRES configurado',
+                    'configuracion': self.proximo_numero_presupuesto,
+                    'comprobante': None
+                }
+            
+            sincronizado = comprobante.proximo_numero == self.proximo_numero_presupuesto
+            
+            return {
+                'sincronizado': sincronizado,
+                'mensaje': '✅ SINCRONIZADO' if sincronizado else '⚠️ DESINCRONIZADO',
+                'configuracion': self.proximo_numero_presupuesto,
+                'comprobante': comprobante.proximo_numero,
+                'rango_comprobante': f"{comprobante.numero_inicial} - {comprobante.numero_final}"
+            }
+                
+        except Exception as e:
+            return {
+                'sincronizado': False,
+                'mensaje': f'❌ Error: {e}',
+                'configuracion': self.proximo_numero_presupuesto,
+                'comprobante': None
+            }
 
     def procesar_imagenes_existentes(self):
         """Reprocesa las imágenes existentes si cambiaron las configuraciones"""
