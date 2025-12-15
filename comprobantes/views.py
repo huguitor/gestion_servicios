@@ -1,4 +1,4 @@
-# gestion/comprobantes/views.py
+# gestion/comprobantes/views.py (igual)
 from rest_framework import viewsets
 from .models import Comprobante
 from .serializers import ComprobanteSerializer

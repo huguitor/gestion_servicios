@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'categorias',
     'marcas',
     'presupuestos',
+    'remitos',
     'impuestos',
     'comprobantes',
     'django_filters',

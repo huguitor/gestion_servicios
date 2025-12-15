@@ -1,3 +1,4 @@
+# gestion/build_exe.py
 import os
 import subprocess
 import sys

@@ -2,18 +2,20 @@
 from django.db import models
 from django.core.validators import RegexValidator
 
-class Proveedor(models.Model):
-    TIPO_CHOICES = [
-        ("fisica", "Persona Física"),
-        ("juridica", "Persona Jurídica"),
-    ]
-    CONDICION_IVA_CHOICES = [
-        ("ri", "Responsable Inscripto"),
-        ("mono", "Monotributista"),
-        ("exento", "Exento"),
-        ("noresidente", "No Residente"),
-    ]
+TIPO_CHOICES = [
+    ("fisica", "Persona Física"),
+    ("juridica", "Persona Jurídica"),
+]
 
+CONDICION_IVA_CHOICES = [
+    ("ri", "Responsable Inscripto"),
+    ("mono", "Monotributista"),
+    ("exento", "Exento"),
+    ("noresidente", "No Residente"),
+]
+
+
+class Proveedor(models.Model):
     tipo = models.CharField(max_length=10, choices=TIPO_CHOICES, default="juridica")
     nombre = models.CharField(max_length=200, help_text="Nombre o Razón Social")
     documento = models.CharField(
@@ -38,13 +40,17 @@ class Proveedor(models.Model):
     actualizado = models.DateTimeField(auto_now=True)
 
     class Meta:
+        ordering = ["nombre"]
         indexes = [models.Index(fields=['documento'])]
         constraints = [
             models.CheckConstraint(
-                check=models.Q(documento__regex=r'^\d{8}$') | models.Q(documento__regex=r'^\d{11}$') | models.Q(documento__isnull=True),
+                check=models.Q(documento__regex=r'^\d{8}$') |
+                      models.Q(documento__regex=r'^\d{11}$') |
+                      models.Q(documento__isnull=True),
                 name='proveedor_valid_documento'
             )
         ]
 
     def __str__(self):
-        return f"{self.nombre} ({self.documento or 'sin CUIT'})"
+        doc = self.documento or 'sin CUIT'
+        return f"{self.nombre} ({doc})"
