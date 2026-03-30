@@ -2,17 +2,30 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, BasePermission
 from django.db.models import Sum, Count
 from django.utils import timezone
 from .models import Presupuesto, PresupuestoAdjunto
 from .serializers import PresupuestoSerializer, PresupuestoAdjuntoSerializer
 
 
+class AllowAnyForCreate(BasePermission):
+    """
+    Permiso personalizado que permite crear presupuestos sin autenticación
+    pero requiere autenticación para otras operaciones
+    """
+    def has_permission(self, request, view):
+        # Permitir sin autenticación: crear presupuestos y listar
+        if view.action in ['create', 'list', 'retrieve']:
+            return True
+        # Para todo lo demás (update, delete, etc.), requiere autenticación
+        return request.user and request.user.is_authenticated
+
+
 class PresupuestoViewSet(viewsets.ModelViewSet):
     queryset = Presupuesto.objects.all()
     serializer_class = PresupuestoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAnyForCreate]  # ⭐ Permiso personalizado
    
     def get_queryset(self):
         queryset = Presupuesto.objects.all()
@@ -24,7 +37,24 @@ class PresupuestoViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        serializer.save(creado_por=self.request.user)
+        # Si hay usuario autenticado, usarlo; si no, usar el primer superusuario
+        if self.request.user and self.request.user.is_authenticated:
+            serializer.save(creado_por=self.request.user)
+        else:
+            # Usuario por defecto para peticiones sin autenticación (Tkinter)
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            default_user = User.objects.filter(is_superuser=True).first()
+            if default_user:
+                serializer.save(creado_por=default_user)
+            else:
+                # Si no hay superusuario, crear uno temporal
+                default_user = User.objects.create_superuser(
+                    username='sistema',
+                    email='sistema@example.com',
+                    password='sistema123'
+                )
+                serializer.save(creado_por=default_user)
 
     @action(detail=True, methods=['post'])
     def anular(self, request, pk=None):

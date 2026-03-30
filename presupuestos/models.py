@@ -143,32 +143,7 @@ class PresupuestoItem(models.Model):
             )
         ]
 
-    def save(self, *args, **kwargs):
-        # Solo rellenar precio en creación
-        if not self.pk and self.precio_unitario in (None, Decimal('0.00'), 0):
-            if self.producto:
-                self.codigo = self.producto.sku or ''
-                self.descripcion = self.producto.nombre
-                self.precio_unitario = self.producto.precio_venta or Decimal('0.00')
-            elif self.servicio:
-                self.codigo = self.servicio.codigo_interno or ''
-                self.descripcion = self.servicio.nombre
-                self.precio_unitario = self.servicio.precio_base or Decimal('0.00')
-
-        # Agrupación solo en creación
-        if not self.pk and not kwargs.get('force_insert', False):
-            existente = PresupuestoItem.objects.filter(
-                presupuesto=self.presupuesto,
-                producto=self.producto,
-                servicio=self.servicio
-            ).first()
-            if existente:
-                existente.cantidad += self.cantidad
-                existente.save()
-                return
-
-        super().save(*args, **kwargs)
-
+    
     @property
     def subtotal(self):
         return (self.cantidad * self.precio_unitario).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)

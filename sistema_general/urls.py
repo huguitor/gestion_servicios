@@ -20,9 +20,20 @@ urlpatterns = [
     path('api-auth/', include('rest_framework.urls')),
     path('api/token/', obtain_auth_token, name='api_token'),
    
-    # 👇 CONFIGURACIÓN GLOBAL (BASE DEL SISTEMA)
+    # 👇 RUTAS DE API (con prefijo /api/)
+    path('api/configuracion/', include('configuracion.urls')),
+    path('api/clientes/', include('clientes.urls')),
+    path('api/proveedores/', include('proveedores.urls')),
+    path('api/productos/', include('productos.urls')),
+    path('api/categorias/', include('categorias.urls')),
+    path('api/marcas/', include('marcas.urls')),
+    path('api/presupuestos/', include('presupuestos.urls')),
+    path('api/remitos/', include('remitos.urls')),
+    path('api/impuestos/', include('impuestos.urls')),
+    path('api/comprobantes/', include('comprobantes.urls')),
+    
+    # 👇 RUTAS SIN PREFIJO (para compatibilidad con código existente)
     path('configuracion/', include('configuracion.urls')),
-    # 👇 APPS DE NEGOCIO
     path('clientes/', include('clientes.urls')),
     path('proveedores/', include('proveedores.urls')),
     path('productos/', include('productos.urls')),

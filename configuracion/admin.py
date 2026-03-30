@@ -1,16 +1,17 @@
 # gestion/configuracion/admin.py
 from django.contrib import admin
 from .models import ConfiguracionGlobal
-from django.utils.html import format_html
+from django.utils.html import format_html, mark_safe
+
 
 @admin.register(ConfiguracionGlobal)
 class ConfiguracionGlobalAdmin(admin.ModelAdmin):
-    list_display = ('nombre_empresa', 'nombre_fantasia', 'proximo_numero_presupuesto_display', 'activo', 'creado', 'actualizado')
+    list_display = ('nombre_empresa', 'nombre_fantasia', 'activo_display', 'creado', 'actualizado')
     list_filter = ('activo', 'pais', 'moneda')
     search_fields = ('nombre_empresa', 'nombre_fantasia', 'cuit', 'email')
-    
-    # ⭐⭐ NUEVO: Acciones personalizadas
-    actions = ['sincronizar_con_comprobante', 'resetear_numeracion']
+   
+    # ⭐⭐ NOTA: Ya no hay acciones de sincronización con Comprobante
+    actions = []  # Sin acciones relacionadas con numeración
    
     fieldsets = (
         ('📋 Datos de la Empresa', {
@@ -19,26 +20,28 @@ class ConfiguracionGlobalAdmin(admin.ModelAdmin):
                 'telefono', 'email', 'pagina_web'
             )
         }),
-        
-        ('📄 Configuración Presupuestos', {
+       
+        ('📄 Configuración de Presupuestos', {
             'fields': (
                 'condiciones_comerciales',
                 'iva_por_defecto',
                 'dias_validez_presupuesto',
-                # ⭐⭐ NUEVO: Campo de próximo número
-                'proximo_numero_presupuesto'
             ),
-            'description': 'Configuración específica para presupuestos'
+            'description': mark_safe(
+                'Configuración específica para presupuestos<br>'
+                '⚠️ <strong>La numeración de presupuestos ahora se maneja desde la app "Comprobantes"</strong><br>'
+                '↳ Ver: <strong>Comprobantes → Tipo: PRES, Serie: 00001</strong>'
+            )
         }),
-        
+       
         ('🖼️ Logo Principal (Header PDFs)', {
             'fields': (
                 'logo_principal',
                 ('logo_principal_ancho', 'logo_principal_alto', 'logo_principal_proporcion'),
             ),
-            'description': 'Configuración del logo principal para documentos PDF'
+            'description': 'Logo grande para encabezados de documentos PDF'
         }),
-        
+       
         ('🌐 Favicon (Barra de direcciones)', {
             'fields': (
                 'logo_favicon',
@@ -46,7 +49,7 @@ class ConfiguracionGlobalAdmin(admin.ModelAdmin):
             ),
             'description': 'Icono pequeño para pestañas del navegador'
         }),
-        
+       
         ('💻 Logo Tkinter (Interfaz Desktop)', {
             'fields': (
                 'logo_tkinter',
@@ -54,182 +57,159 @@ class ConfiguracionGlobalAdmin(admin.ModelAdmin):
             ),
             'description': 'Logo para reemplazar icono por defecto de Tkinter (se usa en el login)'
         }),
-        
+       
         ('📢 Imágenes Publicitarias - Imagen 1', {
             'fields': (
                 'imagen_publicitaria_1',
                 ('imagen_publicitaria_1_ancho', 'imagen_publicitaria_1_alto', 'imagen_publicitaria_1_proporcion'),
             )
         }),
-        
+       
         ('📢 Imágenes Publicitarias - Imagen 2', {
             'fields': (
                 'imagen_publicitaria_2',
                 ('imagen_publicitaria_2_ancho', 'imagen_publicitaria_2_alto', 'imagen_publicitaria_2_proporcion'),
             )
         }),
-        
+       
         ('📢 Imágenes Publicitarias - Imagen 3', {
             'fields': (
                 'imagen_publicitaria_3',
                 ('imagen_publicitaria_3_ancho', 'imagen_publicitaria_3_alto', 'imagen_publicitaria_3_proporcion'),
             )
         }),
-        
+       
         ('⚙️ Configuración General', {
             'fields': (
                 'moneda', 'pais', 'idioma', 'activo'
             )
         }),
-        
-        ('📊 Estado de Sincronización', {
-            'fields': ('estado_sincronizacion_display',),
+       
+        ('📊 Información del Sistema', {
+            'fields': ('informacion_sistema',),
             'classes': ('collapse',),
-            'description': 'Información sobre la sincronización con Comprobante'
+            'description': 'Información sobre el estado del sistema'
         }),
     )
-    
-    # ⭐⭐ NUEVO: Método para mostrar el próximo número con formato
-    def proximo_numero_presupuesto_display(self, obj):
-        """Muestra el próximo número con color según estado"""
-        if not obj.proximo_numero_presupuesto:
-            return format_html('<span style="color: gray;">No configurado</span>')
-        
-        # Obtener estado de sincronización
-        estado = obj.estado_sincronizacion_numeracion()
-        
-        if estado['sincronizado']:
-            color = "green"
-            icon = "✅"
-        else:
-            color = "orange"
-            icon = "⚠️"
-        
-        return format_html(
-            '<span style="color: {}; font-weight: bold;">{}{}</span>',
-            color,
-            icon,
-            obj.proximo_numero_presupuesto
-        )
-    proximo_numero_presupuesto_display.short_description = "Próximo N°"
-    
-    # ⭐⭐ NUEVO: Método para mostrar estado de sincronización
-    def estado_sincronizacion_display(self, obj):
-        """Muestra el estado de sincronización con Comprobante"""
-        estado = obj.estado_sincronizacion_numeracion()
-        
-        if not estado['sincronizado']:
-            if estado['comprobante'] is None:
-                return format_html(
-                    '<div style="background-color: #ffebee; padding: 10px; border-radius: 5px;">'
-                    '<strong style="color: #d32f2f;">❌ ERROR</strong><br>'
-                    'No hay comprobante PRES configurado.<br>'
-                    'Configuración: <strong>{}</strong>'
-                    '</div>',
-                    estado['configuracion']
-                )
-            else:
-                return format_html(
-                    '<div style="background-color: #fff3e0; padding: 10px; border-radius: 5px;">'
-                    '<strong style="color: #f57c00;">⚠️ DESINCRONIZADO</strong><br>'
-                    'Configuración: <strong>{}</strong><br>'
-                    'Comprobante: <strong>{}</strong><br>'
-                    'Rango comprobante: <strong>{}</strong>'
-                    '</div>',
-                    estado['configuracion'],
-                    estado['comprobante'],
-                    estado.get('rango_comprobante', 'N/A')
-                )
+   
+    # ⭐⭐ NUEVO: Método para mostrar el estado activo con colores
+    def activo_display(self, obj):
+        """Muestra el estado activo con colores"""
+        if obj.activo:
+            return format_html(
+                '<span style="background-color: #4CAF50; color: white; padding: 3px 8px; '
+                'border-radius: 4px; font-weight: bold;">✅ ACTIVO</span>'
+            )
         else:
             return format_html(
-                '<div style="background-color: #e8f5e9; padding: 10px; border-radius: 5px;">'
-                '<strong style="color: #388e3c;">✅ SINCRONIZADO</strong><br>'
-                'Configuración: <strong>{}</strong><br>'
-                'Comprobante: <strong>{}</strong><br>'
-                'Rango comprobante: <strong>{}</strong>'
-                '</div>',
-                estado['configuracion'],
-                estado['comprobante'],
-                estado.get('rango_comprobante', 'N/A')
+                '<span style="background-color: #9E9E9E; color: white; padding: 3px 8px; '
+                'border-radius: 4px;">⏸️ INACTIVO</span>'
             )
-    estado_sincronizacion_display.short_description = "Estado de Sincronización"
+    activo_display.short_description = "Estado"
    
-    readonly_fields = ('creado', 'actualizado', 'estado_sincronizacion_display')
+    # ⭐⭐ NUEVO: Campo informativo para el sistema
+    def informacion_sistema(self, obj):
+        """Información sobre el sistema y la numeración"""
+        try:
+            from comprobantes.models import Comprobante
+            
+            # Verificar si existe el comprobante para presupuestos
+            comprobante_pres = Comprobante.objects.filter(tipo='PRES', serie='00001').first()
+            
+            if comprobante_pres:
+                info = format_html(
+                    '<div style="background-color: #e8f5e9; padding: 15px; border-radius: 5px; border-left: 5px solid #4CAF50;">'
+                    '<h4 style="margin-top: 0; color: #388e3c;">✅ Sistema de Numeración Activo</h4>'
+                    '<p><strong>Comprobante PRES-00001:</strong> ID {}</p>'
+                    '<p><strong>Próximo número:</strong> {}</p>'
+                    '<p><strong>Rango configurado:</strong> {:,} - {:,}</p>'
+                    '<hr style="margin: 10px 0;">'
+                    '<p><small>ℹ️ La numeración de presupuestos se maneja exclusivamente desde '
+                    '<strong>Comprobantes → Tipo: PRES, Serie: 00001</strong></small></p>'
+                    '</div>',
+                    comprobante_pres.id,
+                    comprobante_pres.proximo_numero,
+                    comprobante_pres.numero_inicial,
+                    comprobante_pres.numero_final
+                )
+            else:
+                info = format_html(
+                    '<div style="background-color: #fff3e0; padding: 15px; border-radius: 5px; border-left: 5px solid #ff9800;">'
+                    '<h4 style="margin-top: 0; color: #f57c00;">⚠️ Sistema de Numeración Incompleto</h4>'
+                    '<p>No se encontró el comprobante para presupuestos.</p>'
+                    '<p>Por favor, cree un comprobante en <strong>Comprobantes</strong> con:</p>'
+                    '<ul>'
+                    '<li><strong>Tipo:</strong> PRES</li>'
+                    '<li><strong>Serie:</strong> 00001</li>'
+                    '<li><strong>Próximo número:</strong> 1 (o según necesite)</li>'
+                    '</ul>'
+                    '<hr style="margin: 10px 0;">'
+                    '<p><small>ℹ️ Sin este comprobante, no se podrán crear nuevos presupuestos.</small></p>'
+                    '</div>'
+                )
+            
+            return info
+        
+        except ImportError:
+            return format_html(
+                '<div style="background-color: #ffebee; padding: 15px; border-radius: 5px; border-left: 5px solid #f44336;">'
+                '<h4 style="margin-top: 0; color: #d32f2f;">❌ Error en el Sistema</h4>'
+                '<p>No se puede acceder a la app "comprobantes".</p>'
+                '<p>Verifique que la app esté instalada y configurada correctamente.</p>'
+                '</div>'
+            )
+    
+    informacion_sistema.short_description = "Información del Sistema"
+   
+    readonly_fields = ('creado', 'actualizado', 'informacion_sistema')
    
     def has_add_permission(self, request):
-        # Permitir agregar solo si no hay configuraciones activas
+        """Permitir agregar solo si no hay configuraciones activas"""
         if ConfiguracionGlobal.objects.filter(activo=True).exists():
             return False
         return True
    
     def has_delete_permission(self, request, obj=None):
-        # No permitir eliminar la configuración activa
+        """No permitir eliminar la configuración activa"""
         if obj and obj.activo:
             return False
         return True
-    
-    # ⭐⭐ NUEVA: Acción para sincronizar manualmente
-    def sincronizar_con_comprobante(self, request, queryset):
-        """Sincroniza manualmente con Comprobante"""
-        success_count = 0
-        error_count = 0
+   
+    # ⭐⭐ NOTA: Ya no hay métodos para sincronizar con Comprobante
+    # ⭐⭐ NOTA: Ya no hay método save_model con sincronización automática
+   
+    # ⭐⭐ NUEVO: Información sobre la configuración en el listado
+    def get_queryset(self, request):
+        """Optimizar consultas en el listado"""
+        return super().get_queryset(request).select_related()
+   
+    # ⭐⭐ NUEVO: Mensaje de ayuda en la página de cambio
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        """Agregar contexto adicional a la vista de edición"""
+        extra_context = extra_context or {}
         
-        for config in queryset:
-            try:
-                if config.sincronizar_con_comprobante():
-                    success_count += 1
-                else:
-                    error_count += 1
-            except Exception as e:
-                self.message_user(
-                    request,
-                    f"Error sincronizando {config.nombre_empresa}: {e}",
-                    level='error'
-                )
-                error_count += 1
+        # Obtener información del comprobante para mostrar como ayuda
+        try:
+            from comprobantes.models import Comprobante
+            comprobante = Comprobante.objects.filter(tipo='PRES', serie='00001').first()
+            
+            if comprobante:
+                extra_context['comprobante_info'] = {
+                    'existe': True,
+                    'id': comprobante.id,
+                    'proximo_numero': comprobante.proximo_numero,
+                    'tipo': comprobante.tipo,
+                    'serie': comprobante.serie,
+                }
+            else:
+                extra_context['comprobante_info'] = {
+                    'existe': False,
+                    'mensaje': 'No se encontró comprobante PRES-00001'
+                }
+        except ImportError:
+            extra_context['comprobante_info'] = {
+                'existe': False,
+                'mensaje': 'Error al acceder a la app comprobantes'
+            }
         
-        if success_count > 0:
-            self.message_user(
-                request,
-                f"{success_count} configuraciones sincronizadas correctamente",
-                level='success'
-            )
-        
-        if error_count > 0:
-            self.message_user(
-                request,
-                f"{error_count} configuraciones no se pudieron sincronizar",
-                level='warning'
-            )
-    
-    sincronizar_con_comprobante.short_description = "🔄 Sincronizar con Comprobante"
-    
-    # ⭐⭐ NUEVA: Acción para resetear numeración
-    def resetear_numeracion(self, request, queryset):
-        """Resetea el próximo número a 1"""
-        for config in queryset:
-            config.proximo_numero_presupuesto = 1
-            config.save()
-        
-        self.message_user(
-            request,
-            f"{queryset.count()} configuraciones reseteadas a 1",
-            level='success'
-        )
-    
-    resetear_numeracion.short_description = "🔄 Resetear numeración a 1"
-    
-    # ⭐⭐ NUEVO: Sobreescribir save_model para sincronizar automáticamente
-    def save_model(self, request, obj, form, change):
-        """Guardar modelo y sincronizar automáticamente"""
-        # Guardar primero
-        super().save_model(request, obj, form, change)
-        
-        # Si se cambió el próximo número, sincronizar
-        if 'proximo_numero_presupuesto' in form.changed_data:
-            obj.sincronizar_con_comprobante()
-            self.message_user(
-                request,
-                f"Próximo número actualizado a {obj.proximo_numero_presupuesto} y sincronizado con Comprobante",
-                level='success'
-            )
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)

@@ -2,13 +2,14 @@
 from django.db import models
 from .fields import RedimensionableImageField
 
+
 class ConfiguracionGlobal(models.Model):
     """Configuración global del sistema con múltiples imágenes"""
    
     # 👇 DATOS BÁSICOS DE EMPRESA
     nombre_empresa = models.CharField(max_length=200, default="Mi Empresa S.A.")
     nombre_fantasia = models.CharField(
-        max_length=200, 
+        max_length=200,
         default="Empresa de Servicios",
         verbose_name="Nombre Fantasía",
         help_text="Nombre comercial que se muestra en el login"
@@ -16,7 +17,7 @@ class ConfiguracionGlobal(models.Model):
     descripcion_sistema = models.CharField(
         max_length=100,
         default="Sistema de Gestión Comercial",
-        verbose_name="Descripción del Sistema", 
+        verbose_name="Descripción del Sistema",
         help_text="Texto descriptivo que aparece debajo del nombre"
     )
     cuit = models.CharField(max_length=20, blank=True, default="")
@@ -167,7 +168,7 @@ class ConfiguracionGlobal(models.Model):
         help_text="Mantener relación de aspecto original"
     )
    
-    # 👇 CONFIGURACIÓN PRESUPUESTOS
+    # 👇 CONFIGURACIÓN PRESUPUESTOS (SIN NUMERACIÓN)
     condiciones_comerciales = models.TextField(
         default="""Precios expresados en pesos Argentinos
 Plazo de entrega: Inmediata
@@ -177,12 +178,9 @@ Mantenimiento de oferta: 15 días"""
     iva_por_defecto = models.DecimalField(max_digits=5, decimal_places=2, default=21.00)
     dias_validez_presupuesto = models.PositiveIntegerField(default=30)
     
-    # ⭐⭐ NUEVO CAMPO: Control de numeración de presupuestos (sincronizado con Comprobante)
-    proximo_numero_presupuesto = models.IntegerField(
-        default=1,
-        verbose_name="Próximo número de presupuesto",
-        help_text="Próximo número que se usará para presupuestos. Se sincroniza automáticamente con Comprobante → Próximo número"
-    )
+    # ⭐⭐ NOTA: La numeración de presupuestos ahora se maneja exclusivamente 
+    # desde la app comprobantes/models.py (tabla Comprobante)
+    # NO USAR: proximo_numero_presupuesto - YA NO EXISTE
    
     # 👇 CONFIGURACIÓN GENERAL
     moneda = models.CharField(max_length=10, default="ARS", choices=[('ARS', 'Pesos Argentinos'), ('USD', 'Dólares')])
@@ -193,85 +191,28 @@ Mantenimiento de oferta: 15 días"""
     activo = models.BooleanField(default=True)
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
-    
+   
     class Meta:
         verbose_name = "Configuración Global"
         verbose_name_plural = "Configuraciones Globales"
-    
+        ordering = ['-activo', '-creado']  # Activo primero, luego por fecha
+   
     def save(self, *args, **kwargs):
-        # Solo una configuración activa
+        """Guardar configuración con validaciones"""
+        # ⭐⭐ IMPORTANTE: Solo una configuración activa
         if self.activo:
             ConfiguracionGlobal.objects.exclude(pk=self.pk).update(activo=False)
-        
+       
         # Si es una instancia existente y hay imágenes que necesitan reprocesamiento
         if self.pk:
             self.procesar_imagenes_existentes()
-        
-        # Guardar primero
+       
+        # ⭐⭐ NOTA: Ya no hay sincronización con Comprobante aquí
+        # La numeración se maneja exclusivamente desde comprobantes/models.py
+       
+        # Guardar modelo
         super().save(*args, **kwargs)
-        
-        # ⭐⭐ LUEGO SINCRONIZAR CON COMPROBANTE (si se cambió el próximo número)
-        if hasattr(self, 'proximo_numero_presupuesto'):
-            self.sincronizar_con_comprobante()
-    
-    # ⭐⭐ NUEVO MÉTODO: Sincronizar con Comprobante
-    def sincronizar_con_comprobante(self):
-        """Sincroniza el próximo número con el Comprobante activo de tipo PRES"""
-        try:
-            from comprobantes.models import Comprobante
-            
-            # Obtener el comprobante de tipo PRES (presupuesto)
-            comprobante = Comprobante.objects.filter(tipo="PRES").first()
-            if comprobante:
-                # Solo actualizar si el valor es diferente
-                if comprobante.proximo_numero != self.proximo_numero_presupuesto:
-                    comprobante.proximo_numero = self.proximo_numero_presupuesto
-                    comprobante.save()
-                    print(f"✅ Sincronizado: Configuración({self.proximo_numero_presupuesto}) → Comprobante({comprobante.proximo_numero})")
-                else:
-                    print(f"✅ Ya sincronizado: Ambos tienen valor {self.proximo_numero_presupuesto}")
-                return True
-            else:
-                print("⚠️ No hay comprobante PRES para sincronizar")
-                return False
-                
-        except Exception as e:
-            print(f"❌ Error sincronizando con comprobante: {e}")
-            return False
-    
-    # ⭐⭐ NUEVO MÉTODO: Obtener estado de sincronización
-    def estado_sincronizacion_numeracion(self):
-        """Obtiene el estado de sincronización con Comprobante"""
-        try:
-            from comprobantes.models import Comprobante
-            
-            comprobante = Comprobante.objects.filter(tipo="PRES").first()
-            if not comprobante:
-                return {
-                    'sincronizado': False,
-                    'mensaje': 'No hay comprobante PRES configurado',
-                    'configuracion': self.proximo_numero_presupuesto,
-                    'comprobante': None
-                }
-            
-            sincronizado = comprobante.proximo_numero == self.proximo_numero_presupuesto
-            
-            return {
-                'sincronizado': sincronizado,
-                'mensaje': '✅ SINCRONIZADO' if sincronizado else '⚠️ DESINCRONIZADO',
-                'configuracion': self.proximo_numero_presupuesto,
-                'comprobante': comprobante.proximo_numero,
-                'rango_comprobante': f"{comprobante.numero_inicial} - {comprobante.numero_final}"
-            }
-                
-        except Exception as e:
-            return {
-                'sincronizado': False,
-                'mensaje': f'❌ Error: {e}',
-                'configuracion': self.proximo_numero_presupuesto,
-                'comprobante': None
-            }
-
+   
     def procesar_imagenes_existentes(self):
         """Reprocesa las imágenes existentes si cambiaron las configuraciones"""
         try:
@@ -284,27 +225,27 @@ Mantenimiento de oferta: 15 días"""
                 'imagen_publicitaria_2_ancho', 'imagen_publicitaria_2_alto', 'imagen_publicitaria_2_proporcion',
                 'imagen_publicitaria_3_ancho', 'imagen_publicitaria_3_alto', 'imagen_publicitaria_3_proporcion',
             ]
-            
+           
             # Verificar si algún campo de configuración cambió
             if self.pk:
                 original = ConfiguracionGlobal.objects.get(pk=self.pk)
                 config_cambio = any(
-                    getattr(self, campo) != getattr(original, campo) 
+                    getattr(self, campo) != getattr(original, campo)
                     for campo in campos_configuracion
                 )
-                
+               
                 if config_cambio:
                     self.reprocesar_imagenes()
-                    
+                   
         except ConfiguracionGlobal.DoesNotExist:
             pass
-
+   
     def reprocesar_imagenes(self):
         """Reprocesa todas las imágenes existentes con la nueva configuración"""
         from django.core.files.base import ContentFile
         import tempfile
         import os
-        
+       
         campos_imagen = [
             ('logo_principal', 'logo_principal'),
             ('logo_favicon', 'logo_favicon'),
@@ -313,7 +254,7 @@ Mantenimiento de oferta: 15 días"""
             ('imagen_publicitaria_2', 'imagen_publicitaria_2'),
             ('imagen_publicitaria_3', 'imagen_publicitaria_3'),
         ]
-        
+       
         for config_key, field_name in campos_imagen:
             imagen_field = getattr(self, field_name)
             if imagen_field and hasattr(imagen_field, 'path') and os.path.exists(imagen_field.path):
@@ -321,18 +262,18 @@ Mantenimiento de oferta: 15 días"""
                     # Leer la imagen original
                     with open(imagen_field.path, 'rb') as f:
                         content = ContentFile(f.read())
-                    
+                   
                     # Usar el mismo método de redimensionamiento
                     content_redimensionado = imagen_field.redimensionar_imagen(content, self)
-                    
+                   
                     if content_redimensionado != content:
                         # Guardar la imagen redimensionada
                         nombre_archivo = os.path.basename(imagen_field.path)
                         getattr(self, field_name).save(nombre_archivo, content_redimensionado, save=False)
-                        
+                       
                 except Exception as e:
-                    print(f"Error reprocesando {field_name}: {e}")
-
+                    print(f"⚠️ Error reprocesando {field_name}: {e}")
+   
     def actualizar_dimensiones_imagenes(self):
         """Actualiza las dimensiones en los campos de imagen"""
         campos_imagen = [
@@ -343,53 +284,59 @@ Mantenimiento de oferta: 15 días"""
             ('imagen_publicitaria_2', 'imagen_publicitaria_2_ancho', 'imagen_publicitaria_2_alto'),
             ('imagen_publicitaria_3', 'imagen_publicitaria_3_ancho', 'imagen_publicitaria_3_alto'),
         ]
-        
+       
         for campo_imagen, campo_ancho, campo_alto in campos_imagen:
             imagen_field = getattr(self, campo_imagen)
             if imagen_field:
                 imagen_field.field.max_width = getattr(self, campo_ancho)
                 imagen_field.field.max_height = getattr(self, campo_alto)
-    
+   
     def __str__(self):
-        return f"Configuración - {self.nombre_empresa}"
-    
+        return f"{self.nombre_empresa} ({'Activo' if self.activo else 'Inactivo'})"
+   
     # 👇 PROPIEDADES PARA URLs DE IMÁGENES
     @property
     def logo_principal_url(self):
+        """URL del logo principal"""
         if self.logo_principal and hasattr(self.logo_principal, 'url'):
             return self.logo_principal.url
         return None
-    
+   
     @property
     def logo_favicon_url(self):
+        """URL del favicon"""
         if self.logo_favicon and hasattr(self.logo_favicon, 'url'):
             return self.logo_favicon.url
         return None
-    
+   
     @property
     def logo_tkinter_url(self):
+        """URL del logo para Tkinter"""
         if self.logo_tkinter and hasattr(self.logo_tkinter, 'url'):
             return self.logo_tkinter.url
         return None
-    
+   
     @property
     def imagen_publicitaria_1_url(self):
+        """URL de la imagen publicitaria 1"""
         if self.imagen_publicitaria_1 and hasattr(self.imagen_publicitaria_1, 'url'):
             return self.imagen_publicitaria_1.url
         return None
-    
+   
     @property
     def imagen_publicitaria_2_url(self):
+        """URL de la imagen publicitaria 2"""
         if self.imagen_publicitaria_2 and hasattr(self.imagen_publicitaria_2, 'url'):
             return self.imagen_publicitaria_2.url
         return None
-    
+   
     @property
     def imagen_publicitaria_3_url(self):
+        """URL de la imagen publicitaria 3"""
         if self.imagen_publicitaria_3 and hasattr(self.imagen_publicitaria_3, 'url'):
             return self.imagen_publicitaria_3.url
         return None
-    
+   
     def get_absolute_url(self, request=None):
         """URL absoluta para cualquier imagen"""
         def build_url(url):

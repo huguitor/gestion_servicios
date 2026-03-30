@@ -11,8 +11,8 @@ from django.db import transaction
 
 
 class PresupuestoItemSerializer(serializers.ModelSerializer):
-    producto = serializers.PrimaryKeyRelatedField(queryset=Producto.objects.all(), allow_null=True)
-    servicio = serializers.PrimaryKeyRelatedField(queryset=Servicio.objects.all(), allow_null=True)
+    producto = serializers.PrimaryKeyRelatedField(queryset=Producto.objects.all(), allow_null=True, required=False)
+    servicio = serializers.PrimaryKeyRelatedField(queryset=Servicio.objects.all(), allow_null=True, required=False)
     codigo = serializers.CharField(max_length=50, allow_blank=True, required=False)
     descripcion = serializers.CharField(max_length=255, allow_blank=True, required=False)
     precio_unitario = serializers.DecimalField(
@@ -119,9 +119,31 @@ class PresupuestoSerializer(serializers.ModelSerializer):
 
         return subtotal.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
+    @transaction.atomic
     def create(self, validated_data):
+        """
+        Crear un nuevo presupuesto con numeración automática
+        """
+        # Obtener el comprobante para presupuestos
+        comprobante = Comprobante.objects.filter(tipo="PRES").first()
+        if not comprobante:
+            raise serializers.ValidationError("No hay comprobante de tipo PRES configurado.")
+        
+        # ⭐⭐ OBTENER EL SIGUIENTE NÚMERO DEL COMPROBANTE
+        try:
+            numero_asignado = comprobante.obtener_siguiente_numero()
+        except Exception as e:
+            raise serializers.ValidationError(f"Error al obtener número: {str(e)}")
+        
+        # Asignar el comprobante y número al presupuesto
+        validated_data['comprobante'] = comprobante
+        validated_data['numero'] = numero_asignado
+        
+        # Crear el presupuesto con el número asignado
         items_data = validated_data.pop('items', [])
         presupuesto = Presupuesto.objects.create(**validated_data)
+        
+        # Crear los items
         subtotal = self._crear_actualizar_items(presupuesto, items_data)
         iva_valor = (subtotal * Decimal(presupuesto.iva_porcentaje) / 100).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         total = (subtotal + iva_valor).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
