@@ -1,0 +1,17 @@
+altgraph==0.17.5
+asgiref==3.9.1
+Django==5.2.6
+django-cors-headers==4.9.0
+django-filter==25.2
+djangorestframework==3.16.1
+packaging==25.0
+pefile==2024.8.26
+pillow==11.3.0
+pyinstaller==6.17.0
+pyinstaller-hooks-contrib==2025.10
+pywin32-ctypes==0.2.3
+sqlparse==0.5.3
+typing_extensions==4.15.0
+tzdata==2025.2
+waitress==3.0.2
+whitenoise==6.11.0
