@@ -1,0 +1,23 @@
+# Entornos
+venv/
+env/
+
+# Python
+__pycache__/
+*.pyc
+
+# Django
+staticfiles/
+media/
+data/
+db.sqlite3
+
+# Build Windows
+dist/
+build/
+*.spec
+
+# IDE
+.vscode/
+.DS_Store
+Thumbs.db

@@ -21,7 +21,7 @@ Conecta con backend Django REST API para un sistema completo de gestión.
 2. **Ejecuta** el backend desde [app_servicios](https://github.com/huguitor/app_servicios)
 3. **Abre** `LabServicios.exe` e ingresa:
    - Usuario: `admin`
-   - Contraseña: `admin123`
+   - Contraseña: `Donato2019`
 
 ## 🚀 Características Destacadas
 

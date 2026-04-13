@@ -31,7 +31,7 @@ SECRET_KEY = 'django-insecure-@iq9o=e3cn)6gbcscd59wht+dxm05(-c187@t^lekob$&+36ii
 # Si es desarrollo (runserver) -> DEBUG = True
 DEBUG = not getattr(sys, 'frozen', False)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0']   
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '192.168.0.14']   
 
 # CORS settings
 CORS_ALLOW_ALL_ORIGINS = True  # permite cualquier origen (ok para desarrollo)
