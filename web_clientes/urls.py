@@ -8,7 +8,7 @@ from .views import (
 )
 
 urlpatterns = [
-    path('registro/', RegistroClienteWebView.as_view()),
-    path('login/', LoginClienteWebView.as_view()),
-    path('mi-perfil/', MiPerfilView.as_view()),
+    path("registro/", RegistroClienteWebView.as_view(), name="web-clientes-registro"),
+    path("login/", LoginClienteWebView.as_view(), name="web-clientes-login"),
+    path("mi-perfil/", MiPerfilView.as_view(), name="web-clientes-mi-perfil"),
 ]
