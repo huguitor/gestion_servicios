@@ -1,7 +1,6 @@
-# gestion_servicios/marcas/apps.py
 from django.apps import AppConfig
 
 
-class MarcasConfig(AppConfig):
+class WebPublicaConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'marcas'
+    name = 'web_publica'

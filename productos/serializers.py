@@ -328,3 +328,116 @@ class ServicioSerializer(serializers.ModelSerializer):
                 logger.debug(f"Creando ServicioImpuesto: {impuesto_data}")
                 ServicioImpuesto.objects.create(servicio=instance, **impuesto_data)
         return instance
+
+class ProductoWebPublicoSerializer(serializers.ModelSerializer):
+    foto_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Producto
+        fields = [
+            "id",
+            "nombre",
+            "slug",
+            "descripcion_corta",
+            "foto_url",
+            "precio_venta",
+        ]
+
+    def get_foto_url(self, obj):
+        if obj.foto and hasattr(obj.foto, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.foto.url)
+            return obj.foto.url
+        return None
+
+
+class ProductoWebDetalleSerializer(serializers.ModelSerializer):
+    foto_url = serializers.SerializerMethodField()
+    categoria_nombre = serializers.SerializerMethodField()
+    marca_nombre = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Producto
+        fields = [
+            "id",
+            "nombre",
+            "slug",
+            "descripcion",
+            "descripcion_corta",
+            "foto_url",
+            "precio_venta",
+            "categoria_nombre",
+            "marca_nombre",
+        ]
+
+    def get_foto_url(self, obj):
+        if obj.foto and hasattr(obj.foto, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.foto.url)
+            return obj.foto.url
+        return None
+
+    def get_categoria_nombre(self, obj):
+        return obj.categoria.nombre if obj.categoria else ""
+
+    def get_marca_nombre(self, obj):
+        return obj.marca.nombre if obj.marca else ""
+
+
+class ServicioWebPublicoSerializer(serializers.ModelSerializer):
+    imagen_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Servicio
+        fields = [
+            "id",
+            "nombre",
+            "slug",
+            "descripcion_corta",
+            "imagen_url",
+            "precio_base",
+        ]
+
+    def get_imagen_url(self, obj):
+        if obj.imagen and hasattr(obj.imagen, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.imagen.url)
+            return obj.imagen.url
+        return None
+
+
+class ServicioWebDetalleSerializer(serializers.ModelSerializer):
+    imagen_url = serializers.SerializerMethodField()
+    categoria_nombre = serializers.SerializerMethodField()
+    marca_nombre = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Servicio
+        fields = [
+            "id",
+            "nombre",
+            "slug",
+            "descripcion",
+            "descripcion_corta",
+            "imagen_url",
+            "precio_base",
+            "categoria_nombre",
+            "marca_nombre",
+        ]
+
+    def get_imagen_url(self, obj):
+        if obj.imagen and hasattr(obj.imagen, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.imagen.url)
+            return obj.imagen.url
+        return None
+
+    def get_categoria_nombre(self, obj):
+        return obj.categoria.nombre if obj.categoria else ""
+
+    def get_marca_nombre(self, obj):
+        return obj.marca.nombre if obj.marca else ""

@@ -21,16 +21,20 @@ urlpatterns = [
     path('api/token/', obtain_auth_token, name='api_token'),
    
     # 👇 RUTAS DE API (con prefijo /api/)
+# 👇 RUTAS DE API (con prefijo /api/)
     path('api/configuracion/', include('configuracion.urls')),
     path('api/clientes/', include('clientes.urls')),
+    path('api/web-clientes/', include('web_clientes.urls')),
     path('api/proveedores/', include('proveedores.urls')),
     path('api/productos/', include('productos.urls')),
     path('api/categorias/', include('categorias.urls')),
     path('api/marcas/', include('marcas.urls')),
     path('api/presupuestos/', include('presupuestos.urls')),
+    path('api/pedidos/', include('pedidos.urls')),  # 👈 acá
     path('api/remitos/', include('remitos.urls')),
     path('api/impuestos/', include('impuestos.urls')),
     path('api/comprobantes/', include('comprobantes.urls')),
+    path('api/web/', include('web_publica.urls')),
     
     # 👇 RUTAS SIN PREFIJO (para compatibilidad con código existente)
     path('configuracion/', include('configuracion.urls')),

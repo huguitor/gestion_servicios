@@ -1,7 +1,7 @@
-# gestion_servicios/marcas/apps.py
+# gestion_servicios/pedidos/apps.py
 from django.apps import AppConfig
 
 
-class MarcasConfig(AppConfig):
+class PedidosConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'marcas'
+    name = 'pedidos'

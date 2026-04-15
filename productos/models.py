@@ -1,6 +1,7 @@
 # gestion/productos/models.py
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import models
+from django.utils.text import slugify
 from django.core.validators import MinValueValidator
 
 class Producto(models.Model):
@@ -31,6 +32,41 @@ class Producto(models.Model):
     foto = models.ImageField(upload_to="productos/fotos/", blank=True, null=True)
     plano = models.FileField(upload_to="productos/planos/", blank=True, null=True)
 
+    publicado_web = models.BooleanField(
+        default=False,
+        help_text="Indica si el producto puede mostrarse en la web."
+    )
+
+    destacado_web = models.BooleanField(
+        default=False,
+        help_text="Indica si el producto aparece como destacado."
+    )
+
+    mostrar_en_home = models.BooleanField(
+        default=False,
+        help_text="Indica si el producto aparece en la portada."
+    )
+
+    slug = models.SlugField(
+        max_length=255,
+        unique=True,
+        blank=True,
+        null=True,
+        help_text="Slug único para URL amigable."
+    )
+
+    descripcion_corta = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Texto corto para tarjetas web."
+    )
+
+    orden_web = models.PositiveIntegerField(
+        default=0,
+        help_text="Orden de aparición en la web."
+    )
+    
     activo = models.BooleanField(default=True)
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
@@ -47,6 +83,16 @@ class Producto(models.Model):
             last = Producto.objects.all().order_by('id').last()
             next_id = (last.id + 1) if last else 1
             self.sku = f"P{next_id:05d}"
+
+        if not self.slug:
+            base_slug = slugify(self.nombre)
+            slug = base_slug
+            counter = 1
+            while Producto.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
+
         super().save(*args, **kwargs)
 
     def _impuestos_queryset(self, tipo='venta'):
@@ -99,6 +145,41 @@ class Servicio(models.Model):
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 
+    publicado_web = models.BooleanField(
+        default=False,
+        help_text="Indica si el servicio puede mostrarse en la web."
+    )
+
+    destacado_web = models.BooleanField(
+        default=False,
+        help_text="Indica si el servicio aparece como destacado."
+    )
+
+    mostrar_en_home = models.BooleanField(
+        default=False,
+        help_text="Indica si el servicio aparece en la portada."
+    )
+
+    slug = models.SlugField(
+        max_length=255,
+        unique=True,
+        blank=True,
+        null=True,
+        help_text="Slug único para URL amigable."
+    )
+
+    descripcion_corta = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Texto corto para tarjetas web."
+    )
+
+    orden_web = models.PositiveIntegerField(
+        default=0,
+        help_text="Orden de aparición en la web."
+    )
+
     class Meta:
         indexes = [models.Index(fields=['codigo_interno'])]
         ordering = ['codigo_interno', 'nombre']
@@ -111,6 +192,16 @@ class Servicio(models.Model):
             last = Servicio.objects.all().order_by('id').last()
             next_id = (last.id + 1) if last else 1
             self.codigo_interno = f"S{next_id:05d}"
+
+        if not self.slug:
+            base_slug = slugify(self.nombre)
+            slug = base_slug
+            counter = 1
+            while Servicio.objects.exclude(pk=self.pk).filter(slug=slug).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            self.slug = slug
+
         super().save(*args, **kwargs)
 
     def impuestos_dict(self, tipo='venta'):
