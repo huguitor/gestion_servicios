@@ -53,3 +53,20 @@ Conecta con backend Django REST API para un sistema completo de gestión.
 - ✅ **Backup automático** de configuraciones
 
 ## 🏗️ Arquitectura Técnica
+
+## 🔐 SECRET_KEY
+
+La clave de Django se resuelve en este orden:
+
+1. Variable de entorno `DJANGO_SECRET_KEY` (recomendado en servidor).
+2. Archivo `data/secret_key.txt`, autogenerado en el primer arranque si no existe (modo .exe / instalaciones locales).
+
+Nunca se almacena en el repositorio. `data/` ya está en `.gitignore`.
+
+## 🐞 DEBUG
+
+`DEBUG=False` por defecto. Para desarrollo:
+- `manage.py runserver` lo activa automáticamente.
+- En cualquier otro arranque (gunicorn, waitress), definir `DJANGO_DEBUG=1` en el entorno.
+
+En producción nunca exponer una instancia con `DEBUG=True`: el panel de error filtra `settings`, stack traces y variables.

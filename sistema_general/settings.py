@@ -24,27 +24,54 @@ DATA_DIR_ABS.mkdir(exist_ok=True)
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@iq9o=e3cn)6gbcscd59wht+dxm05(-c187@t^lekob$&+36ii'
+# SECRET_KEY: en servidor se toma de DJANGO_SECRET_KEY; en distribución .exe
+# se autogenera y persiste en data/secret_key.txt (data/ está en .gitignore).
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    key_file = DATA_DIR_ABS / 'secret_key.txt'
+    if key_file.exists():
+        SECRET_KEY = key_file.read_text().strip()
+    else:
+        from django.core.management.utils import get_random_secret_key
+        SECRET_KEY = get_random_secret_key()
+        key_file.write_text(SECRET_KEY)
+        try:
+            key_file.chmod(0o600)
+        except OSError:
+            pass  # Windows ignora chmod POSIX
 
-# SECURITY WARNING: don't run with debug turned on in production!
-# Si es ejecutable (frozen) -> DEBUG = False
-# Si es desarrollo (runserver) -> DEBUG = True
-DEBUG = not getattr(sys, 'frozen', False)
+# DEBUG: False por defecto (servidor, gunicorn, .exe). Se activa explícitamente
+# con DJANGO_DEBUG=1, o automáticamente al usar `manage.py runserver`.
+_debug_env = os.environ.get('DJANGO_DEBUG')
+if _debug_env is not None:
+    DEBUG = _debug_env.lower() in ('1', 'true', 'yes', 'on')
+elif getattr(sys, 'frozen', False):
+    DEBUG = False
+else:
+    DEBUG = 'runserver' in sys.argv
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '192.168.0.14']   
 
-# CORS settings
-CORS_ALLOW_ALL_ORIGINS = True  # permite cualquier origen (ok para desarrollo)
+# CORS
+# - Tkinter y admin no requieren CORS (no son browsers o son same-origin).
+# - El frontend web público (catálogo y pedidos) consume /api/ desde otro origen.
+# Política: allowlist explícita. Orígenes LAN cubiertos por regex; orígenes
+# públicos se agregan vía env var DJANGO_CORS_ORIGINS (lista separada por comas).
 
-# Extender los headers permitidos para incluir 'range', necesario para React Admin
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    "Range",
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^http://localhost(:\d+)?$",
+    r"^http://127\.0\.0\.1(:\d+)?$",
+    r"^http://192\.168\.0\.\d+(:\d+)?$",
 ]
 
-# Exponer Content-Range para que React Admin pueda leer la paginación
-CORS_EXPOSE_HEADERS = [
-    "Content-Range",
-]
+_extra_origins = os.environ.get("DJANGO_CORS_ORIGINS", "").strip()
+CORS_ALLOWED_ORIGINS = [o.strip() for o in _extra_origins.split(",") if o.strip()]
+
+# Sólo aplicar CORS a /api/. El admin, /media/ y /static/ son same-origin.
+CORS_URLS_REGEX = r"^/api/.*$"
+
+CORS_ALLOW_HEADERS = list(default_headers) + ["Range"]
+CORS_EXPOSE_HEADERS = ["Content-Range"]
 
 # Application definition
 INSTALLED_APPS = [
@@ -138,7 +165,14 @@ USE_TZ = True
 # ========== ARCHIVOS ESTÁTICOS Y MEDIA ==========
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # Media files (archivos subidos por usuarios) - PERSISTENTES
 MEDIA_URL = '/media/'
