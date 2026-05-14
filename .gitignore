@@ -21,3 +21,6 @@ build/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Datos de entrada para imports (no son parte del codigo)
+productos_cedisa.csv
