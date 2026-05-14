@@ -70,3 +70,33 @@ Nunca se almacena en el repositorio. `data/` ya está en `.gitignore`.
 - En cualquier otro arranque (gunicorn, waitress), definir `DJANGO_DEBUG=1` en el entorno.
 
 En producción nunca exponer una instancia con `DEBUG=True`: el panel de error filtra `settings`, stack traces y variables.
+
+## 🧹 Deuda técnica conocida: rutas duplicadas en `sistema_general/urls.py`
+
+Cada app de negocio está montada dos veces: con prefijo `/api/` (forma actual) y sin prefijo (forma legacy). Ej:
+
+```
+path('api/clientes/', include('clientes.urls')),
+...
+path('clientes/', include('clientes.urls')),   # legacy
+```
+
+**Por qué no se eliminó la forma legacy:** el cliente de escritorio Tkinter (repo separado: `huguitor/app_servicios`) consume exclusivamente las rutas legacy. Análisis del cliente al 2026-05-14: 27 referencias a paths sin `/api/`, ninguna a `/api/`. Ver `api_client.py` y `*_manager.py` en ese repo.
+
+**Por qué no es un problema de seguridad:** `CORS_URLS_REGEX` limita CORS a `^/api/.*$`. Por lo tanto:
+- Las rutas legacy no devuelven headers CORS → no son alcanzables desde un navegador en otro origen.
+- Sólo clientes nativos (Tkinter, scripts CLI) pueden usarlas, y ya están autenticados por token.
+
+La duplicación es estética/de mantenimiento, no de superficie de ataque.
+
+**Cómo cerrarla cuando se haga un release nuevo del cliente Tkinter:**
+
+1. En el repo `huguitor/app_servicios`, modificar `config.py`:
+   ```python
+   @classmethod
+   def get_api_url(cls, endpoint):
+       return f"{cls.API_BASE_URL}/api{endpoint}"
+   ```
+   Y verificar que todos los managers pasen por `Config.get_api_url(...)` (algunos como `remitos_manager.py` hacen `self.client.get("/remitos/...")` directo y habrá que normalizarlos).
+2. Build y distribuir el nuevo `LabServicios.exe`.
+3. Después de confirmar que no quedan clientes viejos hablando con las rutas legacy (habilitar `--access-logfile -` en gunicorn unos días y verificar), eliminar del backend el bloque "RUTAS SIN PREFIJO" en `sistema_general/urls.py:39-50`.
