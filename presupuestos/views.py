@@ -4,9 +4,11 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, BasePermission
 from django.db.models import Sum, Count
+from django.http import HttpResponse
 from django.utils import timezone
 from .models import Presupuesto, PresupuestoAdjunto
 from .serializers import PresupuestoSerializer, PresupuestoAdjuntoSerializer
+from .pdf_generator import filename_for, generar_pdf_presupuesto
 
 
 class AllowAnyForCreate(BasePermission):
@@ -55,6 +57,31 @@ class PresupuestoViewSet(viewsets.ModelViewSet):
                     password='sistema123'
                 )
                 serializer.save(creado_por=default_user)
+
+    @action(detail=True, methods=['get'])
+    def pdf(self, request, pk=None):
+        """
+        Generar y devolver el PDF del presupuesto.
+
+        Devuelve application/pdf como attachment (Content-Disposition).
+        El nombre del archivo incluye número y cliente.
+        """
+        presupuesto = self.get_object()
+        try:
+            pdf_bytes = generar_pdf_presupuesto(presupuesto)
+        except Exception as exc:
+            return Response(
+                {'error': f'No se pudo generar el PDF: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        # `attachment` fuerza descarga; el frontend puede abrir en nueva pestaña
+        # vía blob URL sin importar este header.
+        response['Content-Disposition'] = (
+            f'attachment; filename="{filename_for(presupuesto)}"'
+        )
+        return response
 
     @action(detail=True, methods=['post'])
     def anular(self, request, pk=None):

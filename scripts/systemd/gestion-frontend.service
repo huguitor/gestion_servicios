@@ -1,0 +1,27 @@
+[Unit]
+# Compila el frontend con Vite y deja el bundle en /var/www/web_frontend/dist/.
+# Es oneshot — corre, termina, y systemd lo considera "activo" gracias a
+# RemainAfterExit. Si querés rebuildear, hacé `sudo systemctl restart gestion-frontend`.
+Description=Gestión Frontend (build estático con Vite)
+After=network.target
+
+[Service]
+Type=oneshot
+User=lab
+Group=lab
+WorkingDirectory=/var/www/web_frontend
+# Usar el node del PATH del usuario. Si tenés npm en otra ruta (nvm, asdf),
+# ajustar Environment=PATH=... acá.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/npm run build
+RemainAfterExit=yes
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=10
+
+# Loguear a journald (después se ve con `journalctl -u gestion-frontend`).
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

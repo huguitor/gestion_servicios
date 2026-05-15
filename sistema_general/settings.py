@@ -50,7 +50,9 @@ elif getattr(sys, 'frozen', False):
 else:
     DEBUG = 'runserver' in sys.argv
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '192.168.0.14']   
+# LAN local — aceptamos cualquier host. Seguro porque la app NO está expuesta
+# a internet (vive en una LAN privada). Si algún día se publica, restringir.
+ALLOWED_HOSTS = ['*']
 
 # CORS
 # - Tkinter y admin no requieren CORS (no son browsers o son same-origin).
@@ -61,7 +63,11 @@ ALLOWED_HOSTS = ['localhost', '127.0.0.1', '192.168.0.14']
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^http://localhost(:\d+)?$",
     r"^http://127\.0\.0\.1(:\d+)?$",
-    r"^http://192\.168\.0\.\d+(:\d+)?$",
+    # Todas las redes privadas RFC1918, para que el sistema sobreviva a cambios
+    # de red (oficina, casa, hotspot del celular, etc.).
+    r"^http://10\.\d+\.\d+\.\d+(:\d+)?$",
+    r"^http://172\.(1[6-9]|2[0-9]|3[01])\.\d+\.\d+(:\d+)?$",
+    r"^http://192\.168\.\d+\.\d+(:\d+)?$",
 ]
 
 _extra_origins = os.environ.get("DJANGO_CORS_ORIGINS", "").strip()
@@ -95,6 +101,7 @@ INSTALLED_APPS = [
     'comprobantes',
     'pedidos',
     'web_publica',
+    'backup',  # Tanda 7: backup/restauración granular
     'django_filters',
     'rest_framework',
     'rest_framework.authtoken',

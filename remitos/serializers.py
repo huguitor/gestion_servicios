@@ -50,6 +50,16 @@ class RemitoSerializer(serializers.ModelSerializer):
     cliente_info = serializers.SerializerMethodField()
     total_items = serializers.IntegerField(read_only=True, source='items.count')
     creado_por_info = serializers.SerializerMethodField()
+
+    # comprobante es opcional desde la API: el modelo Remito.save() lo
+    # autorellena con el primer Comprobante tipo REMI si no viene.
+    # El frontend web no lo expone — siempre se asigna server-side
+    # (mismo patrón que presupuestos).
+    comprobante = serializers.PrimaryKeyRelatedField(
+        queryset=Comprobante.objects.all(),
+        required=False,
+        allow_null=True,
+    )
     
     class Meta:
         model = Remito
@@ -146,19 +156,32 @@ class RemitoSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         """Crear remito con items"""
         items_data = validated_data.pop('items')
-        
+
         # Asignar usuario creador
         request = self.context.get('request')
         if request and request.user:
             validated_data['creado_por'] = request.user
-        
+
+        # Si no vino comprobante, asignar el primero tipo REMI.
+        # Hacemos esto acá (y no en el save() del modelo) porque
+        # Remito.objects.create() no setea comprobante_id si no viene en
+        # validated_data, y luego `if not self.comprobante` dispara
+        # RelatedObjectDoesNotExist al intentar acceder a la FK vacía.
+        if 'comprobante' not in validated_data:
+            comprobante = Comprobante.objects.filter(tipo='REMI').first()
+            if not comprobante:
+                raise serializers.ValidationError({
+                    'comprobante': 'No hay comprobante de tipo REMI configurado.'
+                })
+            validated_data['comprobante'] = comprobante
+
         # Crear remito
         remito = Remito.objects.create(**validated_data)
-        
+
         # Crear items
         for item_data in items_data:
             ItemRemito.objects.create(remito=remito, **item_data)
-        
+
         return remito
     
     def update(self, instance, validated_data):

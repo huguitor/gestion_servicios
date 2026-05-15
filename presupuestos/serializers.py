@@ -97,6 +97,10 @@ class PresupuestoSerializer(serializers.ModelSerializer):
                 precio_unitario = Decimal(producto.precio_venta or '0.00')
                 item_data['producto'] = producto
                 item_data['servicio'] = None
+                # Faltaba esta línea: precio_unitario es NOT NULL en la BD y
+                # la rama de servicio sí lo asignaba. Sin esto, POST /api/presupuestos/
+                # con un ítem de tipo producto rompía con IntegrityError.
+                item_data['precio_unitario'] = precio_unitario
 
             elif servicio:
                 if isinstance(servicio, int):

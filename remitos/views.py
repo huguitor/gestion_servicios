@@ -7,8 +7,10 @@ from django.db import transaction
 from django.db import models  # ← AGREGADO para usar models.Count
 from django.db.models.functions import TruncMonth  # ← AGREGADO
 from django.core.exceptions import ValidationError  # ← AGREGADO
+from django.http import HttpResponse  # ← Tanda 5: descarga PDF
 from .models import Remito, ItemRemito, RemitoAdjunto
 from .serializers import RemitoSerializer, ItemRemitoSerializer, RemitoAdjuntoSerializer
+from .pdf_generator import filename_for, generar_pdf_remito  # ← Tanda 5
 
 
 class RemitoViewSet(viewsets.ModelViewSet):
@@ -184,6 +186,29 @@ class RemitoViewSet(viewsets.ModelViewSet):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    @action(detail=True, methods=['get'])
+    def pdf(self, request, pk=None):
+        """
+        Generar y devolver el PDF del remito.
+
+        Devuelve application/pdf como attachment (Content-Disposition).
+        Mismo patrón que /api/presupuestos/{id}/pdf/.
+        """
+        remito = self.get_object()
+        try:
+            pdf_bytes = generar_pdf_remito(remito)
+        except Exception as exc:
+            return Response(
+                {'error': f'No se pudo generar el PDF: {exc}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = (
+            f'attachment; filename="{filename_for(remito)}"'
+        )
+        return response
+
     @action(detail=True, methods=['post'])
     def anular(self, request, pk=None):
         """Anular un remito"""
@@ -364,24 +389,38 @@ class ItemRemitoViewSet(viewsets.ModelViewSet):
 
 
 class RemitoAdjuntoViewSet(viewsets.ModelViewSet):
+    """
+    Viewset de adjuntos para remitos.
+
+    Se monta como router anidado bajo /api/remitos/{remito_pk}/adjuntos/...
+    así que toma `remito_pk` de self.kwargs. Mantiene compatibilidad con
+    `?remito=` para llamadas legacy.
+    """
     queryset = RemitoAdjunto.objects.all()
     serializer_class = RemitoAdjuntoSerializer
     permission_classes = [IsAuthenticated]
-    
+
     def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # Filtrar por remito
-        remito_id = self.request.query_params.get('remito', None)
-        if remito_id:
-            queryset = queryset.filter(remito_id=remito_id)
-        
-        # Filtrar por tipo
+        queryset = super().get_queryset().select_related('remito', 'subido_por')
+
+        # Tanda 5: priorizamos el remito_pk de la URL anidada.
+        remito_pk = self.kwargs.get('remito_pk')
+        if remito_pk:
+            queryset = queryset.filter(remito_id=remito_pk)
+        else:
+            remito_id = self.request.query_params.get('remito', None)
+            if remito_id:
+                queryset = queryset.filter(remito_id=remito_id)
+
         tipo = self.request.query_params.get('tipo', None)
         if tipo:
             queryset = queryset.filter(tipo=tipo)
-        
+
         return queryset
-    
+
     def perform_create(self, serializer):
-        serializer.save(subido_por=self.request.user)
+        remito_pk = self.kwargs.get('remito_pk')
+        if remito_pk:
+            serializer.save(subido_por=self.request.user, remito_id=remito_pk)
+        else:
+            serializer.save(subido_por=self.request.user)

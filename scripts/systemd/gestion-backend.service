@@ -1,0 +1,37 @@
+[Unit]
+# Backend Django sirviendo API + SPA buildeado (todo en :8000).
+# Depende del frontend (Wants + After) — si el build falla, backend igual
+# arranca (Wants es suave, no requiere) pero verás el placeholder de "frontend
+# no buildeado" hasta que repares.
+Description=Gestión Backend (Django + SPA via gunicorn)
+After=network.target gestion-frontend.service
+Wants=gestion-frontend.service
+
+[Service]
+Type=simple
+User=lab
+Group=lab
+WorkingDirectory=/var/www/gestion_servicios
+Environment=PATH=/var/www/gestion_servicios/venv/bin:/usr/bin:/bin
+# Producción: DEBUG=False (default cuando NO usás runserver). Si necesitás
+# debug pasajero, ponelo en true acá y reiniciá el servicio.
+# Environment=DJANGO_DEBUG=1
+
+# Gunicorn: 3 workers son suficientes para LAN local con pocos usuarios.
+# --access-logfile - manda los access logs a stdout (journald los captura).
+ExecStart=/var/www/gestion_servicios/venv/bin/gunicorn \
+    sistema_general.wsgi:application \
+    --bind 0.0.0.0:8000 \
+    --workers 3 \
+    --timeout 120 \
+    --access-logfile - \
+    --error-logfile -
+
+Restart=on-failure
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
