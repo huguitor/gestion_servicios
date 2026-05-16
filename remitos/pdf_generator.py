@@ -132,14 +132,22 @@ def _draw_logo_zone(canvas_obj, _doc):
 def _draw_footer(canvas_obj, _doc):
     canvas_obj.saveState()
     empresa = _empresa_info()
-    if empresa['pagina_web']:
-        text = f"{empresa['nombre_empresa']} - {empresa['pagina_web']} - Tel: {empresa['telefono']}"
-    else:
-        text = f"{empresa['nombre_empresa']} - Tel: {empresa['telefono']} - Email: {empresa['email']}"
+    
+    # Primera línea: nombre - teléfono - email
+    text_line1 = f"{empresa['nombre_empresa']} - Tel: {empresa['telefono']}"
+    if empresa['email']:
+        text_line1 += f" - Email: {empresa['email']}"
+    
     canvas_obj.setFont('Helvetica', 8)
     canvas_obj.setFillColor(colors.gray)
-    w = canvas_obj.stringWidth(text, 'Helvetica', 8)
-    canvas_obj.drawString((A4[0] - w) / 2, 30, text)
+    w = canvas_obj.stringWidth(text_line1, 'Helvetica', 8)
+    canvas_obj.drawString((A4[0] - w) / 2, 30, text_line1)
+    
+    # Segunda línea: página web centrada (si existe)
+    if empresa['pagina_web']:
+        w_web = canvas_obj.stringWidth(empresa['pagina_web'], 'Helvetica', 8)
+        canvas_obj.drawString((A4[0] - w_web) / 2, 20, empresa['pagina_web'])
+    
     canvas_obj.restoreState()
 
 
