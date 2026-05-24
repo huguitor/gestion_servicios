@@ -7,6 +7,7 @@ from rest_framework.throttling import AnonRateThrottle
 from .models import ConfiguracionGlobal
 from .serializers import ConfiguracionGlobalSerializer
 from .services import ConfiguracionService
+from django.conf import settings
 
 
 class ConfiguracionGlobalViewSet(viewsets.ModelViewSet):
@@ -48,6 +49,12 @@ class ConfiguracionGlobalViewSet(viewsets.ModelViewSet):
             'nombre_fantasia': config_data.get('nombre_fantasia'),
             'descripcion_sistema': config_data.get('descripcion_sistema'),
             'logo_url': config_data.get('logo_url'),
+            'modulos': {
+                'productos': getattr(settings, 'MODULO_PRODUCTOS', True),
+                'registro': getattr(settings, 'MODULO_CLIENTES', True),
+                'pedidos': getattr(settings, 'MODULO_PEDIDOS', True),
+                'carrito': getattr(settings, 'MODULO_PEDIDOS', True),
+            }
         }
         
         # 👇 AGREGAR URL ABSOLUTA SI HAY LOGO
