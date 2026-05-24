@@ -1,4 +1,4 @@
-# gestion/categorias/models.py
+# backend/categorias/models.py
 from django.db import models
 
 class Categoria(models.Model):

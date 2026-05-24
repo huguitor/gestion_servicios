@@ -1,4 +1,4 @@
-# gestion_pedidos/pedidos/admin.py
+# gestion/backend/pedidos/admin.py
 
 from django.contrib import admin
 
@@ -8,7 +8,11 @@ from .models import Pedido, PedidoItem
 class PedidoItemInline(admin.TabularInline):
     model = PedidoItem
     extra = 0
-    readonly_fields = ("subtotal",)
+
+    readonly_fields = (
+        "subtotal",
+    )
+
     fields = (
         "tipo_item",
         "producto",
@@ -23,6 +27,7 @@ class PedidoItemInline(admin.TabularInline):
 
 @admin.register(Pedido)
 class PedidoAdmin(admin.ModelAdmin):
+
     list_display = (
         "id",
         "cliente_web",
@@ -33,7 +38,24 @@ class PedidoAdmin(admin.ModelAdmin):
         "activo",
         "creado",
     )
-    list_filter = ("estado", "activo", "creado")
+
+    # Permite editar estado directo desde listado
+    list_editable = (
+        "estado",
+    )
+
+    # Columnas clickeables
+    list_display_links = (
+        "id",
+        "cliente_web",
+    )
+
+    list_filter = (
+        "estado",
+        "activo",
+        "creado",
+    )
+
     search_fields = (
         "id",
         "cliente__nombre",
@@ -41,8 +63,18 @@ class PedidoAdmin(admin.ModelAdmin):
         "cliente__documento",
         "cliente__email",
     )
-    ordering = ("-id",)
-    readonly_fields = ("subtotal", "total", "creado", "actualizado")
+
+    ordering = (
+        "-id",
+    )
+
+    readonly_fields = (
+        "subtotal",
+        "total",
+        "creado",
+        "actualizado",
+    )
+
     fields = (
         "cliente_web",
         "cliente",
@@ -55,11 +87,15 @@ class PedidoAdmin(admin.ModelAdmin):
         "creado",
         "actualizado",
     )
-    inlines = [PedidoItemInline]
+
+    inlines = [
+        PedidoItemInline,
+    ]
 
 
 @admin.register(PedidoItem)
 class PedidoItemAdmin(admin.ModelAdmin):
+
     list_display = (
         "id",
         "pedido",
@@ -69,10 +105,24 @@ class PedidoItemAdmin(admin.ModelAdmin):
         "precio_unitario_snapshot",
         "subtotal",
     )
-    list_filter = ("tipo_item",)
-    search_fields = ("nombre_snapshot", "codigo_snapshot")
-    ordering = ("-id",)
-    readonly_fields = ("subtotal",)
+
+    list_filter = (
+        "tipo_item",
+    )
+
+    search_fields = (
+        "nombre_snapshot",
+        "codigo_snapshot",
+    )
+
+    ordering = (
+        "-id",
+    )
+
+    readonly_fields = (
+        "subtotal",
+    )
+
     fields = (
         "pedido",
         "tipo_item",

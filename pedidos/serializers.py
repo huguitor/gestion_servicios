@@ -1,11 +1,12 @@
-# gestion_servicios/pedidos/serializers.py
+# gestion/backend/pedidos/serializers.py
+
 from decimal import Decimal
 
 from django.db import transaction
 from rest_framework import serializers
 
 from productos.models import Producto, Servicio
-
+from .emails import enviar_email_pedido_recibido
 from .models import Pedido, PedidoItem
 
 
@@ -13,12 +14,12 @@ class PedidoItemCreateSerializer(serializers.Serializer):
     producto = serializers.PrimaryKeyRelatedField(
         queryset=Producto.objects.all(),
         required=False,
-        allow_null=True
+        allow_null=True,
     )
     servicio = serializers.PrimaryKeyRelatedField(
         queryset=Servicio.objects.all(),
         required=False,
-        allow_null=True
+        allow_null=True,
     )
     cantidad = serializers.IntegerField(min_value=1)
 
@@ -94,6 +95,17 @@ class PedidoSerializer(serializers.ModelSerializer):
     def validate_items(self, value):
         if not value:
             raise serializers.ValidationError("El pedido debe tener al menos un ítem.")
+
+        for item in value:
+            producto = item.get("producto")
+            cantidad = item.get("cantidad", 1)
+
+            if producto and cantidad > producto.stock_disponible:
+                raise serializers.ValidationError(
+                    f"No hay stock suficiente para {producto.nombre}. "
+                    f"Stock disponible: {producto.stock_disponible}."
+                )
+
         return value
 
     @transaction.atomic
@@ -114,7 +126,7 @@ class PedidoSerializer(serializers.ModelSerializer):
         pedido = Pedido.objects.create(
             cliente_web=cliente_web,
             cliente=cliente,
-            **validated_data
+            **validated_data,
         )
 
         for item_data in items_data:
@@ -147,6 +159,18 @@ class PedidoSerializer(serializers.ModelSerializer):
                 )
 
         pedido.refresh_from_db()
+
+        # Reservar stock automáticamente.
+        pedido.reservar_stock()
+
+        pedido.refresh_from_db()
+
+        # Enviar email inicial al cliente.
+        try:
+            enviar_email_pedido_recibido(pedido)
+        except Exception as e:
+            print(f"[EMAIL PEDIDO] Error enviando email: {e}")
+
         return pedido
 
 
@@ -177,6 +201,7 @@ class PedidoDetalleSerializer(serializers.ModelSerializer):
     def get_cliente_nombre(self, obj):
         if not obj.cliente:
             return ""
+
         nombre = obj.cliente.nombre or ""
         apellido = obj.cliente.apellido or ""
         return f"{nombre} {apellido}".strip()
@@ -184,4 +209,39 @@ class PedidoDetalleSerializer(serializers.ModelSerializer):
     def get_cliente_web_email(self, obj):
         if not obj.cliente_web:
             return ""
+
         return obj.cliente_web.user.email
+
+
+class PedidoAdminUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer exclusivo para administración.
+
+    Permite cambiar:
+    - estado
+    - observaciones internas
+    - activo
+
+    La lógica pesada NO vive acá.
+    El modelo Pedido.save() ya se encarga de:
+    - reservar stock
+    - liberar stock
+    - descontar stock
+    - enviar emails por estado
+    """
+
+    class Meta:
+        model = Pedido
+        fields = [
+            "estado",
+            "observaciones_internas",
+            "activo",
+        ]
+
+    def validate_estado(self, value):
+        estados_validos = [choice[0] for choice in Pedido.ESTADO_CHOICES]
+
+        if value not in estados_validos:
+            raise serializers.ValidationError("Estado de pedido inválido.")
+
+        return value

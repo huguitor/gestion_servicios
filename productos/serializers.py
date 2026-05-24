@@ -1,3 +1,5 @@
+# gestion/backend/productos/serializers.py
+
 from rest_framework import serializers
 from .models import Producto, Servicio, ProductoImpuesto, ServicioImpuesto
 from categorias.models import Categoria
@@ -75,16 +77,17 @@ class ProductoSerializer(serializers.ModelSerializer):
     
     # ✅ NUEVO CAMPO - URL completa de la foto
     foto_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
 
 
     class Meta:
         model = Producto
         fields = [
             'id', 'sku', 'codigo_barras', 'nombre', 'descripcion', 'precio_venta', 'costo_compra',
-            'stock', 'proveedor', 'categoria', 'marca', 'productoimpuesto_set', 'foto', 'foto_url', 'plano',
+            'stock', 'proveedor', 'categoria', 'marca', 'productoimpuesto_set', 'foto', 'foto_url', 'video', 'video_url', 'plano',
             'activo', 'creado', 'actualizado', 'display_name'
         ]
-        read_only_fields = ['creado', 'actualizado', 'sku', 'display_name', 'foto_url']  # ✅ Agregar foto_url aquí
+        read_only_fields = ['creado', 'actualizado', 'sku', 'display_name', 'foto_url', 'video_url']  # ✅ Agregar foto_url y video_url aquí
 
 
     # ✅ NUEVO MÉTODO - Obtener URL completa de la foto
@@ -97,6 +100,14 @@ class ProductoSerializer(serializers.ModelSerializer):
             return obj.foto.url
         return None
 
+    def get_video_url(self, obj):
+        """Devuelve la URL completa del video"""
+        if obj.video and hasattr(obj.video, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.video.url)
+            return obj.video.url
+        return None
 
     def to_internal_value(self, data):
         """
@@ -205,16 +216,16 @@ class ServicioSerializer(serializers.ModelSerializer):
     
     # ✅ NUEVO CAMPO - URL completa de la imagen
     imagen_url = serializers.SerializerMethodField()
-
+    video_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Servicio
         fields = [
             'id', 'codigo_interno', 'nombre', 'descripcion', 'costo_base', 'precio_base',
-            'categoria', 'marca', 'servicioimpuesto_set', 'imagen', 'imagen_url', 'adjunto',
+            'categoria', 'marca', 'servicioimpuesto_set', 'imagen', 'imagen_url', 'video', 'video_url', 'adjunto',
             'activo', 'creado', 'actualizado', 'display_name'
         ]
-        read_only_fields = ['creado', 'actualizado', 'codigo_interno', 'display_name', 'imagen_url']  # ✅ Agregar imagen_url aquí
+        read_only_fields = ['creado', 'actualizado', 'codigo_interno', 'display_name', 'imagen_url', 'video_url']  # ✅ Agregar imagen_url aquí
 
 
     # ✅ NUEVO MÉTODO - Obtener URL completa de la imagen
@@ -226,7 +237,14 @@ class ServicioSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.imagen.url)
             return obj.imagen.url
         return None
-
+    def get_video_url(self, obj):
+        """Devuelve la URL completa del video"""
+        if obj.video and hasattr(obj.video, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.video.url)
+            return obj.video.url
+        return None
 
     def to_internal_value(self, data):
         """
@@ -351,9 +369,95 @@ class ProductoWebPublicoSerializer(serializers.ModelSerializer):
             return obj.foto.url
         return None
 
+class ProductoWebHomeSerializer(serializers.ModelSerializer):
+    foto_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Producto
+        fields = [
+            "id",
+            "nombre",
+            "slug",
+            "descripcion_corta",
+            "foto_url",
+            "video_url",
+        ]
+
+    def get_foto_url(self, obj):
+        if obj.foto and hasattr(obj.foto, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.foto.url)
+            return obj.foto.url
+        return None
+
+    def get_video_url(self, obj):
+        if obj.video and hasattr(obj.video, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.video.url)
+            return obj.video.url
+        return None
+
+class ProductoWebClienteSerializer(serializers.ModelSerializer):
+
+    foto_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
+
+    stock_disponible = serializers.SerializerMethodField()
+
+
+    class Meta:
+        model = Producto
+
+        fields = [
+            "id",
+            "sku",
+            "nombre",
+            "slug",
+            "descripcion_corta",
+            "foto_url",
+            "video_url",
+            "precio_venta",
+            "stock_disponible",
+        ]
+
+
+    def get_stock_disponible(self, obj):
+        return obj.stock_disponible
+
+
+    def get_foto_url(self, obj):
+
+        if obj.foto and hasattr(obj.foto, "url"):
+
+            request = self.context.get("request")
+
+            if request:
+                return request.build_absolute_uri(obj.foto.url)
+
+            return obj.foto.url
+
+        return None
+
+
+    def get_video_url(self, obj):
+
+        if obj.video and hasattr(obj.video, "url"):
+
+            request = self.context.get("request")
+
+            if request:
+                return request.build_absolute_uri(obj.video.url)
+
+            return obj.video.url
+
+        return None
 
 class ProductoWebDetalleSerializer(serializers.ModelSerializer):
     foto_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
     categoria_nombre = serializers.SerializerMethodField()
     marca_nombre = serializers.SerializerMethodField()
 
@@ -366,7 +470,7 @@ class ProductoWebDetalleSerializer(serializers.ModelSerializer):
             "descripcion",
             "descripcion_corta",
             "foto_url",
-            "precio_venta",
+            "video_url",
             "categoria_nombre",
             "marca_nombre",
         ]
@@ -379,15 +483,91 @@ class ProductoWebDetalleSerializer(serializers.ModelSerializer):
             return obj.foto.url
         return None
 
+    def get_video_url(self, obj):
+        if obj.video and hasattr(obj.video, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.video.url)
+            return obj.video.url
+        return None
+
     def get_categoria_nombre(self, obj):
         return obj.categoria.nombre if obj.categoria else ""
 
     def get_marca_nombre(self, obj):
         return obj.marca.nombre if obj.marca else ""
 
+class ProductoWebClienteDetalleSerializer(serializers.ModelSerializer):
 
+    foto_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
+
+    categoria_nombre = serializers.SerializerMethodField()
+    marca_nombre = serializers.SerializerMethodField()
+
+    stock_disponible = serializers.SerializerMethodField()
+
+
+    class Meta:
+        model = Producto
+
+        fields = [
+            "id",
+            "sku",
+            "nombre",
+            "slug",
+            "descripcion",
+            "descripcion_corta",
+            "foto_url",
+            "video_url",
+            "precio_venta",
+            "stock_disponible",
+            "categoria_nombre",
+            "marca_nombre",
+        ]
+
+
+    def get_stock_disponible(self, obj):
+        return obj.stock_disponible
+
+
+    def get_foto_url(self, obj):
+
+        if obj.foto and hasattr(obj.foto, "url"):
+
+            request = self.context.get("request")
+
+            if request:
+                return request.build_absolute_uri(obj.foto.url)
+
+            return obj.foto.url
+
+        return None
+
+
+    def get_video_url(self, obj):
+
+        if obj.video and hasattr(obj.video, "url"):
+
+            request = self.context.get("request")
+
+            if request:
+                return request.build_absolute_uri(obj.video.url)
+
+            return obj.video.url
+
+        return None
+
+
+    def get_categoria_nombre(self, obj):
+        return obj.categoria.nombre if obj.categoria else ""
+
+
+    def get_marca_nombre(self, obj):
+        return obj.marca.nombre if obj.marca else ""
 class ServicioWebPublicoSerializer(serializers.ModelSerializer):
     imagen_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Servicio
@@ -397,6 +577,7 @@ class ServicioWebPublicoSerializer(serializers.ModelSerializer):
             "slug",
             "descripcion_corta",
             "imagen_url",
+            "video_url",
             "precio_base",
         ]
 
@@ -408,9 +589,17 @@ class ServicioWebPublicoSerializer(serializers.ModelSerializer):
             return obj.imagen.url
         return None
 
+    def get_video_url(self, obj):
+        if obj.video and hasattr(obj.video, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.video.url)
+            return obj.video.url
+        return None
 
 class ServicioWebDetalleSerializer(serializers.ModelSerializer):
     imagen_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
     categoria_nombre = serializers.SerializerMethodField()
     marca_nombre = serializers.SerializerMethodField()
 
@@ -423,6 +612,83 @@ class ServicioWebDetalleSerializer(serializers.ModelSerializer):
             "descripcion",
             "descripcion_corta",
             "imagen_url",
+            "video_url",
+            "categoria_nombre",
+            "marca_nombre",
+        ]
+
+    def get_imagen_url(self, obj):
+        if obj.imagen and hasattr(obj.imagen, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.imagen.url)
+            return obj.imagen.url
+        return None
+
+    def get_video_url(self, obj):
+        if obj.video and hasattr(obj.video, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.video.url)
+            return obj.video.url
+        return None
+
+    def get_categoria_nombre(self, obj):
+        return obj.categoria.nombre if obj.categoria else ""
+
+    def get_marca_nombre(self, obj):
+        return obj.marca.nombre if obj.marca else ""
+class ServicioWebClienteSerializer(serializers.ModelSerializer):
+    imagen_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Servicio
+        fields = [
+            "id",
+            "codigo_interno",
+            "nombre",
+            "slug",
+            "descripcion_corta",
+            "imagen_url",
+            "video_url",
+            "precio_base",
+        ]
+
+    def get_imagen_url(self, obj):
+        if obj.imagen and hasattr(obj.imagen, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.imagen.url)
+            return obj.imagen.url
+        return None
+
+    def get_video_url(self, obj):
+        if obj.video and hasattr(obj.video, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.video.url)
+            return obj.video.url
+        return None
+
+
+class ServicioWebClienteDetalleSerializer(serializers.ModelSerializer):
+    imagen_url = serializers.SerializerMethodField()
+    video_url = serializers.SerializerMethodField()
+    categoria_nombre = serializers.SerializerMethodField()
+    marca_nombre = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Servicio
+        fields = [
+            "id",
+            "codigo_interno",
+            "nombre",
+            "slug",
+            "descripcion",
+            "descripcion_corta",
+            "imagen_url",
+            "video_url",
             "precio_base",
             "categoria_nombre",
             "marca_nombre",
@@ -434,6 +700,14 @@ class ServicioWebDetalleSerializer(serializers.ModelSerializer):
             if request is not None:
                 return request.build_absolute_uri(obj.imagen.url)
             return obj.imagen.url
+        return None
+
+    def get_video_url(self, obj):
+        if obj.video and hasattr(obj.video, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.video.url)
+            return obj.video.url
         return None
 
     def get_categoria_nombre(self, obj):

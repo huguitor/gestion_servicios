@@ -1,4 +1,4 @@
-# gestion_servicios/web_clientes/models.py
+# backend/web_clientes/models.py
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import models

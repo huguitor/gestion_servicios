@@ -1,4 +1,4 @@
-# gestion_servicios/pedidos/urls.py
+# gestion/backend/pedidos/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 

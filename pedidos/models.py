@@ -1,18 +1,15 @@
-# gestion_servicios/pedidos/models.py
+# gestion/backend/pedidos/models.py
+
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from .emails import enviar_email_estado_pedido
+from productos.models import MovimientoStock
 
 
 class Pedido(models.Model):
-    """
-    Pedido generado desde la web.
-    NO reemplaza presupuestos.
-    NO usa numeración fiscal.
-    NO depende de comprobantes.
-    """
 
     ESTADO_CHOICES = [
         ("pendiente", "Pendiente"),
@@ -22,14 +19,13 @@ class Pedido(models.Model):
         ("entregado", "Entregado"),
         ("cancelado", "Cancelado"),
     ]
-    
+
     cliente_web = models.ForeignKey(
         "web_clientes.ClienteWeb",
         on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="pedidos",
-        help_text="Cliente autenticado de la web."
     )
 
     cliente = models.ForeignKey(
@@ -38,7 +34,6 @@ class Pedido(models.Model):
         null=True,
         blank=True,
         related_name="pedidos_web",
-        help_text="Cliente comercial asociado, si existe."
     )
 
     estado = models.CharField(
@@ -47,17 +42,8 @@ class Pedido(models.Model):
         default="pendiente"
     )
 
-    observaciones_cliente = models.TextField(
-        blank=True,
-        default="",
-        help_text="Observaciones escritas por el cliente desde la web."
-    )
-
-    observaciones_internas = models.TextField(
-        blank=True,
-        default="",
-        help_text="Notas internas del equipo."
-    )
+    observaciones_cliente = models.TextField(blank=True, default="")
+    observaciones_internas = models.TextField(blank=True, default="")
 
     subtotal = models.DecimalField(
         max_digits=12,
@@ -72,44 +58,225 @@ class Pedido(models.Model):
     )
 
     activo = models.BooleanField(default=True)
+    stock_reservado_aplicado = models.BooleanField(
+        default=False,
+        help_text="Indica si este pedido ya aplicó reserva de stock."
+    )
+
+    stock_finalizado_aplicado = models.BooleanField(
+        default=False,
+        help_text="Indica si este pedido ya aplicó salida definitiva o liberación de stock."
+    )
+
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-id"]
-        indexes = [
-            models.Index(fields=["estado"]),
-            models.Index(fields=["creado"]),
-        ]
-        verbose_name = "Pedido"
-        verbose_name_plural = "Pedidos"
 
     def __str__(self):
-        cliente_str = str(self.cliente) if self.cliente else "Cliente web sin vincular"
-        return f"Pedido #{self.id} - {cliente_str} - {self.estado}"
+        return f"Pedido #{self.id}"
 
     def recalcular_totales(self):
-        """
-        Recalcula subtotal y total a partir de los ítems del pedido.
-        Por ahora total = subtotal.
-        Más adelante, si querés sumar recargos, descuentos o envío,
-        este método es el lugar correcto.
-        """
+
         subtotal = sum(
             (item.subtotal for item in self.items.all()),
             Decimal("0.00")
         )
 
-        self.subtotal = subtotal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        self.subtotal = subtotal.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
+        )
+
         self.total = self.subtotal
 
+    def reservar_stock(self):
+
+        if self.stock_reservado_aplicado:
+            return
+
+        for item in self.items.select_related("producto"):
+
+            if not item.producto:
+                continue
+
+            producto = item.producto
+
+            stock_anterior = producto.stock
+            reservado_anterior = producto.stock_reservado
+
+            reservado_nuevo = reservado_anterior + item.cantidad
+
+            if reservado_nuevo > producto.stock:
+                raise ValidationError(
+                    f"No hay stock disponible para {producto.nombre}"
+                )
+
+            producto.stock_reservado = reservado_nuevo
+
+            producto.save(
+                update_fields=[
+                    "stock_reservado"
+                ]
+            )
+
+            MovimientoStock.registrar(
+                producto=producto,
+                tipo="reserva",
+                cantidad=item.cantidad,
+                stock_anterior=stock_anterior,
+                stock_reservado_anterior=reservado_anterior,
+                stock_nuevo=producto.stock,
+                stock_reservado_nuevo=producto.stock_reservado,
+                pedido=self,
+                observacion=f"Reserva pedido #{self.id}",
+            )
+
+        self.stock_reservado_aplicado = True
+
+        self.save(
+            update_fields=[
+                "stock_reservado_aplicado"
+            ]
+        )
+    def liberar_stock(self):
+
+        if self.stock_finalizado_aplicado:
+            return
+
+        if not self.stock_reservado_aplicado:
+            return
+
+        for item in self.items.select_related("producto"):
+
+            if not item.producto:
+                continue
+
+            producto = item.producto
+
+            stock_anterior = producto.stock
+            reservado_anterior = producto.stock_reservado
+
+            producto.stock_reservado = max(
+                0,
+                reservado_anterior - item.cantidad
+            )
+
+            producto.save(
+                update_fields=[
+                    "stock_reservado"
+                ]
+            )
+
+            MovimientoStock.registrar(
+                producto=producto,
+                tipo="liberacion",
+                cantidad=item.cantidad,
+                stock_anterior=stock_anterior,
+                stock_reservado_anterior=reservado_anterior,
+                stock_nuevo=producto.stock,
+                stock_reservado_nuevo=producto.stock_reservado,
+                pedido=self,
+                observacion=f"Liberación pedido #{self.id}",
+            )
+
+        self.stock_finalizado_aplicado = True
+
+        self.save(
+            update_fields=[
+                "stock_finalizado_aplicado"
+            ]
+        )
+    def confirmar_entrega(self):
+
+        if self.stock_finalizado_aplicado:
+            return
+
+        for item in self.items.select_related("producto"):
+
+            if not item.producto:
+                continue
+
+            producto = item.producto
+
+            stock_anterior = producto.stock
+            reservado_anterior = producto.stock_reservado
+
+            producto.stock = max(
+                0,
+                producto.stock - item.cantidad
+            )
+
+            producto.stock_reservado = max(
+                0,
+                producto.stock_reservado - item.cantidad
+            )
+
+            producto.save(
+                update_fields=[
+                    "stock",
+                    "stock_reservado"
+                ]
+            )
+
+            MovimientoStock.registrar(
+                producto=producto,
+                tipo="salida",
+                cantidad=item.cantidad,
+                stock_anterior=stock_anterior,
+                stock_reservado_anterior=reservado_anterior,
+                stock_nuevo=producto.stock,
+                stock_reservado_nuevo=producto.stock_reservado,
+                pedido=self,
+                observacion=f"Entrega pedido #{self.id}",
+            )
+
+        self.stock_finalizado_aplicado = True
+
+        self.save(
+            update_fields=[
+                "stock_finalizado_aplicado"
+            ]
+        )
+
     def save(self, *args, **kwargs):
-        """
-        Guardado normal del pedido.
-        No recalcula antes del primer save porque puede no tener items aún.
-        """
+
+        estado_anterior = None
+
+        if self.pk:
+            try:
+                estado_anterior = (
+                    Pedido.objects
+                    .only("estado")
+                    .get(pk=self.pk)
+                    .estado
+                )
+            except Pedido.DoesNotExist:
+                pass
+
         super().save(*args, **kwargs)
 
+        if estado_anterior == self.estado:
+            return
+
+        if self.estado == "pendiente":
+            self.reservar_stock()
+
+        elif self.estado == "confirmado":
+            self.reservar_stock()
+
+        elif self.estado == "entregado":
+            self.confirmar_entrega()
+
+        elif self.estado == "cancelado":
+            self.liberar_stock()
+
+        if self.estado in ["confirmado", "entregado", "cancelado"]:
+            try:
+                enviar_email_estado_pedido(self)
+            except Exception as e:
+                print(f"[EMAIL ESTADO PEDIDO] Error enviando email: {e}")
 
 class PedidoItem(models.Model):
     """

@@ -50,10 +50,57 @@ elif getattr(sys, 'frozen', False):
 else:
     DEBUG = 'runserver' in sys.argv
 
-# LAN local — aceptamos cualquier host. Seguro porque la app NO está expuesta
-# a internet (vive en una LAN privada). Si algún día se publica, restringir.
-ALLOWED_HOSTS = ['*']
+# Hosts permitidos.
+# Se configuran por .env para que el mismo código funcione en local, Docker y producción.
+DJANGO_ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1")
+ALLOWED_HOSTS = [host.strip() for host in DJANGO_ALLOWED_HOSTS.split(",") if host.strip()]
+# =============================================================================
+# PRODUCCIÓN DETRÁS DE NGINX DOCKER / HTTPS
+# =============================================================================
 
+DJANGO_CSRF_TRUSTED_ORIGINS = os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").strip()
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in DJANGO_CSRF_TRUSTED_ORIGINS.split(",")
+    if origin.strip()
+]
+
+if os.environ.get("DJANGO_SECURE_PROXY_SSL_HEADER", "0").lower() in ("1", "true", "yes", "on"):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+SESSION_COOKIE_SECURE = os.environ.get("DJANGO_SESSION_COOKIE_SECURE", "0").lower() in ("1", "true", "yes", "on")
+CSRF_COOKIE_SECURE = os.environ.get("DJANGO_CSRF_COOKIE_SECURE", "0").lower() in ("1", "true", "yes", "on")
+
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SAMESITE = "Lax"
+
+# ========== GOOGLE LOGIN CLIENTES WEB ==========
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+# ========== EMAIL / VERIFICACIÓN CLIENTES WEB ==========
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend"
+)
+
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1").lower() in ("1", "true", "yes", "on")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL",
+    "Panozo Sistemas <no-reply@panozosistemas.com.ar>"
+)
+
+FRONTEND_BASE_URL = os.environ.get(
+    "FRONTEND_BASE_URL",
+    "https://portal.panozosistemas.com.ar"
+)
+
+BACKEND_BASE_URL = os.environ.get(
+    "BACKEND_BASE_URL",
+    "https://api-gestion.panozosistemas.com.ar"
+)
 # CORS
 # - Tkinter y admin no requieren CORS (no son browsers o son same-origin).
 # - El frontend web público (catálogo y pedidos) consume /api/ desde otro origen.
@@ -138,15 +185,35 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'sistema_general.wsgi.application'
 
-# ========== BASE DE DATOS PERSISTENTE ==========
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': str(DATA_DIR_ABS / 'database.sqlite3'),  # data/database.sqlite3
-    }
-}
-# ===============================================
+# ========== BASE DE DATOS ==========
+# En servidor Docker usamos PostgreSQL.
+# En modo .exe o desarrollo standalone seguimos usando SQLite.
 
+if os.environ.get("POSTGRES_DB"):
+    print("🐘 PostgreSQL detectado")
+
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("POSTGRES_DB"),
+            "USER": os.environ.get("POSTGRES_USER"),
+            "PASSWORD": os.environ.get("POSTGRES_PASSWORD"),
+            "HOST": os.environ.get("POSTGRES_HOST", "gestion-db"),
+            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        }
+    }
+
+else:
+    print("🗂️ SQLite detectado")
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': str(DATA_DIR_ABS / 'database.sqlite3'),
+        }
+    }
+
+# ===============================================
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {

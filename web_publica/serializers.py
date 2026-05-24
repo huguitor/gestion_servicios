@@ -1,8 +1,9 @@
-# gestion/web_publica/serializers.py
+# gestion/backend/web_publica/serializers.py
 
 from rest_framework import serializers
 from productos.serializers import (
     ProductoWebPublicoSerializer,
+    ProductoWebHomeSerializer,
     ServicioWebPublicoSerializer,
 )
 from configuracion.models import ConfiguracionGlobal
@@ -58,7 +59,8 @@ class EmpresaWebPublicaSerializer(serializers.ModelSerializer):
 
 class HomeWebSerializer(serializers.Serializer):
     empresa = serializers.SerializerMethodField()
-    productos_destacados = serializers.SerializerMethodField()
+    ofertas = serializers.SerializerMethodField()
+    productos_seleccionados = serializers.SerializerMethodField()
     servicios_destacados = serializers.SerializerMethodField()
 
     def get_empresa(self, obj):
@@ -72,9 +74,18 @@ class HomeWebSerializer(serializers.Serializer):
         )
         return serializer.data
 
-    def get_productos_destacados(self, obj):
-        productos = obj.get("productos", [])
+    def get_ofertas(self, obj):
+        ofertas = obj.get("ofertas", [])
         serializer = ProductoWebPublicoSerializer(
+            ofertas,
+            many=True,
+            context=self.context
+        )
+        return serializer.data
+
+    def get_productos_seleccionados(self, obj):
+        productos = obj.get("productos_seleccionados", [])
+        serializer = ProductoWebHomeSerializer(
             productos,
             many=True,
             context=self.context

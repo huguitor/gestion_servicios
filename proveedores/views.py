@@ -1,7 +1,7 @@
 # gestion/proveedores/views.py
 from rest_framework import viewsets, filters
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser
 
 from .models import Proveedor
 from .serializers import ProveedorSerializer
@@ -10,7 +10,7 @@ from .serializers import ProveedorSerializer
 class ProveedorViewSet(viewsets.ModelViewSet):
     queryset = Proveedor.objects.all()
     serializer_class = ProveedorSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     search_fields = ['nombre', 'documento', 'email']

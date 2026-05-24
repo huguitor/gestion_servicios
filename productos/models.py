@@ -1,8 +1,11 @@
-# gestion/productos/models.py
+# gestion/backend/productos/models.py
+
 from decimal import Decimal, ROUND_HALF_UP
+
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.text import slugify
-from django.core.validators import MinValueValidator
+
 
 class Producto(models.Model):
     sku = models.CharField(
@@ -17,31 +20,67 @@ class Producto(models.Model):
     descripcion = models.TextField(blank=True)
 
     precio_venta = models.DecimalField(
-        max_digits=12, decimal_places=2, validators=[MinValueValidator(0)]
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(0)]
     )
     costo_compra = models.DecimalField(
-        max_digits=12, decimal_places=2, blank=True, null=True, validators=[MinValueValidator(0)]
+        max_digits=12,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(0)]
     )
 
     stock = models.PositiveIntegerField(default=0)
-    proveedor = models.ForeignKey('proveedores.Proveedor', on_delete=models.PROTECT, blank=True, null=True)
-    categoria = models.ForeignKey('categorias.Categoria', on_delete=models.PROTECT, blank=True, null=True)
-    marca = models.ForeignKey('marcas.Marca', on_delete=models.PROTECT, blank=True, null=True)
 
-    impuestos = models.ManyToManyField('impuestos.Impuesto', through='ProductoImpuesto', blank=True)
+    stock_reservado = models.PositiveIntegerField(
+        default=0,
+        help_text="Cantidad reservada por pedidos web pendientes o confirmados."
+    )
+
+    proveedor = models.ForeignKey(
+        "proveedores.Proveedor",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True
+    )
+    categoria = models.ForeignKey(
+        "categorias.Categoria",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True
+    )
+    marca = models.ForeignKey(
+        "marcas.Marca",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True
+    )
+
+    impuestos = models.ManyToManyField(
+        "impuestos.Impuesto",
+        through="ProductoImpuesto",
+        blank=True
+    )
+
     foto = models.ImageField(upload_to="productos/fotos/", blank=True, null=True)
+    video = models.FileField(
+        upload_to="productos/videos/",
+        blank=True,
+        null=True,
+        help_text="Video demostrativo del producto. Puede incluir audio."
+    )
     plano = models.FileField(upload_to="productos/planos/", blank=True, null=True)
 
     publicado_web = models.BooleanField(
         default=False,
         help_text="Indica si el producto puede mostrarse en la web."
     )
-
     destacado_web = models.BooleanField(
         default=False,
         help_text="Indica si el producto aparece como destacado."
     )
-
     mostrar_en_home = models.BooleanField(
         default=False,
         help_text="Indica si el producto aparece en la portada."
@@ -66,21 +105,28 @@ class Producto(models.Model):
         default=0,
         help_text="Orden de aparición en la web."
     )
-    
+
     activo = models.BooleanField(default=True)
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 
     class Meta:
-        indexes = [models.Index(fields=['sku', 'codigo_barras'])]
-        ordering = ['sku', 'nombre']
+        indexes = [
+            models.Index(fields=["sku", "codigo_barras"]),
+        ]
+        ordering = ["sku", "nombre"]
 
     def __str__(self):
         return f"{self.sku or 'NO-SKU'} - {self.nombre}"
 
+    @property
+    def stock_disponible(self):
+        disponible = self.stock - self.stock_reservado
+        return disponible if disponible > 0 else 0
+
     def save(self, *args, **kwargs):
         if not self.sku:
-            last = Producto.objects.all().order_by('id').last()
+            last = Producto.objects.all().order_by("id").last()
             next_id = (last.id + 1) if last else 1
             self.sku = f"P{next_id:05d}"
 
@@ -88,59 +134,117 @@ class Producto(models.Model):
             base_slug = slugify(self.nombre)
             slug = base_slug
             counter = 1
+
             while Producto.objects.exclude(pk=self.pk).filter(slug=slug).exists():
                 slug = f"{base_slug}-{counter}"
                 counter += 1
+
             self.slug = slug
 
         super().save(*args, **kwargs)
 
-    def _impuestos_queryset(self, tipo='venta'):
+    def _impuestos_queryset(self, tipo="venta"):
         return self.productoimpuesto_set.filter(tipo=tipo)
 
-    def impuestos_dict(self, tipo='venta'):
+    def impuestos_dict(self, tipo="venta"):
         res = {}
-        for pip in self._impuestos_queryset(tipo=tipo).select_related('impuesto'):
+
+        for pip in self._impuestos_queryset(tipo=tipo).select_related("impuesto"):
             res[pip.impuesto.nombre] = Decimal(str(pip.impuesto.porcentaje))
+
         return res
 
     def precio_venta_con_impuestos(self):
         if self.precio_venta is None:
             return None
-        impuestos = self.impuestos_dict(tipo='venta')
+
+        impuestos = self.impuestos_dict(tipo="venta")
+
         if not impuestos:
-            return Decimal(self.precio_venta).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            return Decimal(self.precio_venta).quantize(
+                Decimal("0.01"),
+                rounding=ROUND_HALF_UP
+            )
+
         total_pct = sum(impuestos.values())
-        total = Decimal(self.precio_venta) * (Decimal('1') + total_pct / Decimal('100'))
-        return total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total = Decimal(self.precio_venta) * (
+            Decimal("1") + total_pct / Decimal("100")
+        )
+
+        return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def costo_compra_con_impuestos(self):
         if self.costo_compra is None:
             return None
-        impuestos = self.impuestos_dict(tipo='compra')
+
+        impuestos = self.impuestos_dict(tipo="compra")
+
         if not impuestos:
-            return Decimal(self.costo_compra).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            return Decimal(self.costo_compra).quantize(
+                Decimal("0.01"),
+                rounding=ROUND_HALF_UP
+            )
+
         total_pct = sum(impuestos.values())
-        total = Decimal(self.costo_compra) * (Decimal('1') + total_pct / Decimal('100'))
-        return total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total = Decimal(self.costo_compra) * (
+            Decimal("1") + total_pct / Decimal("100")
+        )
+
+        return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
 
 class Servicio(models.Model):
     codigo_interno = models.CharField(
-        max_length=50, unique=True, blank=True, null=True, help_text="Código interno (S00001...)"
+        max_length=50,
+        unique=True,
+        blank=True,
+        null=True,
+        help_text="Código interno (S00001...)"
     )
     nombre = models.CharField(max_length=200)
     descripcion = models.TextField(blank=True)
+
     costo_base = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.0, validators=[MinValueValidator(0)]
+        max_digits=12,
+        decimal_places=2,
+        default=0.0,
+        validators=[MinValueValidator(0)]
     )
     precio_base = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.0, validators=[MinValueValidator(0)]
+        max_digits=12,
+        decimal_places=2,
+        default=0.0,
+        validators=[MinValueValidator(0)]
     )
-    categoria = models.ForeignKey('categorias.Categoria', on_delete=models.PROTECT, blank=True, null=True)
-    marca = models.ForeignKey('marcas.Marca', on_delete=models.PROTECT, blank=True, null=True)
-    impuestos = models.ManyToManyField('impuestos.Impuesto', through='ServicioImpuesto', blank=True)
+
+    categoria = models.ForeignKey(
+        "categorias.Categoria",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True
+    )
+    marca = models.ForeignKey(
+        "marcas.Marca",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True
+    )
+
+    impuestos = models.ManyToManyField(
+        "impuestos.Impuesto",
+        through="ServicioImpuesto",
+        blank=True
+    )
+
     imagen = models.ImageField(upload_to="servicios/imagenes/", blank=True, null=True)
+    video = models.FileField(
+        upload_to="servicios/videos/",
+        blank=True,
+        null=True,
+        help_text="Video demostrativo del servicio. Puede incluir audio."
+    )
     adjunto = models.FileField(upload_to="servicios/adjuntos/", blank=True, null=True)
+
     activo = models.BooleanField(default=True)
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
@@ -149,12 +253,10 @@ class Servicio(models.Model):
         default=False,
         help_text="Indica si el servicio puede mostrarse en la web."
     )
-
     destacado_web = models.BooleanField(
         default=False,
         help_text="Indica si el servicio aparece como destacado."
     )
-
     mostrar_en_home = models.BooleanField(
         default=False,
         help_text="Indica si el servicio aparece en la portada."
@@ -181,15 +283,17 @@ class Servicio(models.Model):
     )
 
     class Meta:
-        indexes = [models.Index(fields=['codigo_interno'])]
-        ordering = ['codigo_interno', 'nombre']
+        indexes = [
+            models.Index(fields=["codigo_interno"]),
+        ]
+        ordering = ["codigo_interno", "nombre"]
 
     def __str__(self):
         return f"{self.codigo_interno or 'NO-CODE'} - {self.nombre}"
 
     def save(self, *args, **kwargs):
         if not self.codigo_interno:
-            last = Servicio.objects.all().order_by('id').last()
+            last = Servicio.objects.all().order_by("id").last()
             next_id = (last.id + 1) if last else 1
             self.codigo_interno = f"S{next_id:05d}"
 
@@ -197,55 +301,181 @@ class Servicio(models.Model):
             base_slug = slugify(self.nombre)
             slug = base_slug
             counter = 1
+
             while Servicio.objects.exclude(pk=self.pk).filter(slug=slug).exists():
                 slug = f"{base_slug}-{counter}"
                 counter += 1
+
             self.slug = slug
 
         super().save(*args, **kwargs)
 
-    def impuestos_dict(self, tipo='venta'):
+    def impuestos_dict(self, tipo="venta"):
         res = {}
-        for sip in self.servicioimpuesto_set.filter(tipo=tipo).select_related('impuesto'):
-            if sip.impuesto:  # Verificar que impuesto no sea nulo
+
+        for sip in self.servicioimpuesto_set.filter(tipo=tipo).select_related("impuesto"):
+            if sip.impuesto:
                 res[sip.impuesto.nombre] = Decimal(str(sip.impuesto.porcentaje))
+
         return res
 
     def precio_base_con_impuestos(self):
-        precio_base = self.precio_base or Decimal('0.0')
-        impuestos = self.impuestos_dict(tipo='venta')
+        precio_base = self.precio_base or Decimal("0.0")
+        impuestos = self.impuestos_dict(tipo="venta")
+
         if not impuestos:
-            return precio_base.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            return precio_base.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
         total_pct = sum(impuestos.values())
-        total = precio_base * (Decimal('1') + total_pct / Decimal('100'))
-        return total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        total = precio_base * (Decimal("1") + total_pct / Decimal("100"))
+
+        return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
 
 class ProductoImpuesto(models.Model):
     TIPO_CHOICES = [
-        ('compra', 'Compra'),
-        ('venta', 'Venta'),
+        ("compra", "Compra"),
+        ("venta", "Venta"),
     ]
+
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE)
-    impuesto = models.ForeignKey('impuestos.Impuesto', on_delete=models.PROTECT)
+    impuesto = models.ForeignKey("impuestos.Impuesto", on_delete=models.PROTECT)
     tipo = models.CharField(max_length=10, choices=TIPO_CHOICES)
 
     class Meta:
-        unique_together = ('producto', 'impuesto', 'tipo')
+        unique_together = ("producto", "impuesto", "tipo")
 
     def __str__(self):
         return f"{self.producto.nombre} - {self.impuesto.nombre} ({self.tipo})"
 
+
 class ServicioImpuesto(models.Model):
     TIPO_CHOICES = [
-        ('compra', 'Compra'),
-        ('venta', 'Venta'),
+        ("compra", "Compra"),
+        ("venta", "Venta"),
     ]
+
     servicio = models.ForeignKey(Servicio, on_delete=models.CASCADE)
-    impuesto = models.ForeignKey('impuestos.Impuesto', on_delete=models.PROTECT)
+    impuesto = models.ForeignKey("impuestos.Impuesto", on_delete=models.PROTECT)
     tipo = models.CharField(max_length=10, choices=TIPO_CHOICES)
 
     class Meta:
-        unique_together = ('servicio', 'impuesto', 'tipo')
+        unique_together = ("servicio", "impuesto", "tipo")
 
     def __str__(self):
         return f"{self.servicio.nombre} - {self.impuesto.nombre} ({self.tipo})"
+
+class MovimientoStock(models.Model):
+
+    TIPO_CHOICES = [
+        ("entrada", "Entrada"),
+        ("reserva", "Reserva"),
+        ("liberacion", "Liberación"),
+        ("salida", "Salida"),
+        ("ajuste", "Ajuste"),
+    ]
+
+    producto = models.ForeignKey(
+        Producto,
+        on_delete=models.CASCADE,
+        related_name="movimientos_stock"
+    )
+
+    tipo = models.CharField(
+        max_length=20,
+        choices=TIPO_CHOICES
+    )
+
+    cantidad = models.IntegerField()
+
+    stock_anterior = models.IntegerField()
+
+    stock_reservado_anterior = models.IntegerField(
+        default=0
+    )
+
+    stock_nuevo = models.IntegerField()
+
+    stock_reservado_nuevo = models.IntegerField(
+        default=0
+    )
+
+    pedido = models.ForeignKey(
+        "pedidos.Pedido",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="movimientos_stock"
+    )
+
+    observacion = models.TextField(
+        blank=True,
+        default=""
+    )
+
+    creado = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        ordering = [
+            "-creado",
+            "-id",
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "producto",
+                    "creado",
+                ]
+            ),
+            models.Index(
+                fields=[
+                    "tipo",
+                ]
+            ),
+        ]
+
+        verbose_name = "Movimiento de stock"
+        verbose_name_plural = "Movimientos de stock"
+
+    def __str__(self):
+
+        return (
+            f"{self.producto.nombre} | "
+            f"{self.tipo} | "
+            f"{self.cantidad}"
+        )
+
+    @classmethod
+    def registrar(
+        cls,
+        producto,
+        tipo,
+        cantidad,
+        stock_anterior,
+        stock_reservado_anterior,
+        stock_nuevo,
+        stock_reservado_nuevo,
+        pedido=None,
+        observacion="",
+    ):
+
+        return cls.objects.create(
+            producto=producto,
+            tipo=tipo,
+            cantidad=cantidad,
+            stock_anterior=stock_anterior,
+            stock_reservado_anterior=stock_reservado_anterior,
+            stock_nuevo=stock_nuevo,
+            stock_reservado_nuevo=stock_reservado_nuevo,
+            pedido=pedido,
+            observacion=observacion,
+        )
+
+        return (
+            f"{self.producto.nombre} | "
+            f"{self.tipo} | "
+            f"{self.cantidad}"
+        )

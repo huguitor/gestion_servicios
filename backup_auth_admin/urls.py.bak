@@ -6,7 +6,6 @@ from django.http import JsonResponse
 from rest_framework.authtoken.views import obtain_auth_token
 from django.conf import settings
 from django.views.static import serve
-from .admin_auth import AdminLoginView
 
 
 def api_root(request):
@@ -33,7 +32,6 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api-auth/", include("rest_framework.urls")),
     path("api/token/", obtain_auth_token, name="api_token"),
-    path("api/admin/login/", AdminLoginView.as_view(), name="admin_login"),
 
     # RUTAS DE API
     path("api/configuracion/", include("configuracion.urls")),

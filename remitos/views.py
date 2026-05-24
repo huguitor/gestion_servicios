@@ -2,7 +2,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser
 from django.db import transaction
 from django.db import models  # ← AGREGADO para usar models.Count
 from django.db.models.functions import TruncMonth  # ← AGREGADO
@@ -16,7 +16,7 @@ from .pdf_generator import filename_for, generar_pdf_remito  # ← Tanda 5
 class RemitoViewSet(viewsets.ModelViewSet):
     queryset = Remito.objects.all()
     serializer_class = RemitoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -365,7 +365,7 @@ class RemitoViewSet(viewsets.ModelViewSet):
 class ItemRemitoViewSet(viewsets.ModelViewSet):
     queryset = ItemRemito.objects.all()
     serializer_class = ItemRemitoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -398,7 +398,7 @@ class RemitoAdjuntoViewSet(viewsets.ModelViewSet):
     """
     queryset = RemitoAdjunto.objects.all()
     serializer_class = RemitoAdjuntoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
 
     def get_queryset(self):
         queryset = super().get_queryset().select_related('remito', 'subido_por')

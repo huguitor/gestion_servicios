@@ -2,7 +2,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAdminUser, AllowAny
 from rest_framework.throttling import AnonRateThrottle
 from .models import ConfiguracionGlobal
 from .serializers import ConfiguracionGlobalSerializer
@@ -12,7 +12,7 @@ from .services import ConfiguracionService
 class ConfiguracionGlobalViewSet(viewsets.ModelViewSet):
     queryset = ConfiguracionGlobal.objects.all()
     serializer_class = ConfiguracionGlobalSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     
     def get_serializer_context(self):
         """Incluir request en el contexto del serializer"""

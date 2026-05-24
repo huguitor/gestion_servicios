@@ -3,13 +3,13 @@ from rest_framework import viewsets, filters
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Impuesto
 from .serializers import ImpuestoSerializer
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAdminUser
 
 
 class ImpuestoViewSet(viewsets.ModelViewSet):
     queryset = Impuesto.objects.all()
     serializer_class = ImpuestoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     
     # Agregar filtros y búsqueda
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]

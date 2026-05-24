@@ -1,8 +1,8 @@
-# gestion/presupuestos/views.py
+# gestion/backend/presupuestos/views.py
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, BasePermission
+from rest_framework.permissions import IsAdminUser, BasePermission
 from django.db.models import Sum, Count
 from django.http import HttpResponse
 from django.utils import timezone
@@ -21,7 +21,7 @@ class AllowAnyForCreate(BasePermission):
         if view.action in ['create', 'list', 'retrieve']:
             return True
         # Para todo lo demás (update, delete, etc.), requiere autenticación
-        return request.user and request.user.is_authenticated
+        return request.user and request.user.is_staff
 
 
 class PresupuestoViewSet(viewsets.ModelViewSet):
@@ -135,7 +135,7 @@ class PresupuestoViewSet(viewsets.ModelViewSet):
 class PresupuestoAdjuntoViewSet(viewsets.ModelViewSet):
     queryset = PresupuestoAdjunto.objects.all()
     serializer_class = PresupuestoAdjuntoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
 
     def get_queryset(self):
         queryset = PresupuestoAdjunto.objects.select_related(
