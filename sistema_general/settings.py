@@ -76,6 +76,55 @@ CSRF_COOKIE_SAMESITE = "Lax"
 
 # ========== GOOGLE LOGIN CLIENTES WEB ==========
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+# ==========================================================
+# MÓDULOS ACTIVABLES POR CLIENTE
+# ==========================================================
+
+def env_bool(nombre, default=False):
+    """
+    Convierte variables de entorno tipo True/False en booleanos reales.
+
+    Valores aceptados como True:
+    1, true, yes, on
+    """
+    return os.environ.get(
+        nombre,
+        str(default)
+    ).lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+EMPRESA_NOMBRE = os.environ.get(
+    "EMPRESA_NOMBRE",
+    "Gestión Comercial"
+)
+
+EMPRESA_COLOR = os.environ.get(
+    "EMPRESA_COLOR",
+    "#2563eb"
+)
+
+EMPRESA_LOGO = os.environ.get(
+    "EMPRESA_LOGO",
+    ""
+)
+
+
+# Módulos base
+MODULO_CLIENTES = env_bool("MODULO_CLIENTES", True)
+MODULO_PRODUCTOS = env_bool("MODULO_PRODUCTOS", True)
+MODULO_PRESUPUESTOS = env_bool("MODULO_PRESUPUESTOS", True)
+MODULO_PEDIDOS = env_bool("MODULO_PEDIDOS", True)
+MODULO_REMITOS = env_bool("MODULO_REMITOS", True)
+MODULO_STOCK = env_bool("MODULO_STOCK", True)
+
+# Módulos técnicos / internos
+MODULO_BACKUP = env_bool("MODULO_BACKUP", True)
+MODULO_WEB_PUBLICA = env_bool("MODULO_WEB_PUBLICA", True)
 # ========== EMAIL / VERIFICACIÓN CLIENTES WEB ==========
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
