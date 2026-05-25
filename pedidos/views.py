@@ -9,6 +9,8 @@ from rest_framework.response import Response
 
 from .models import Pedido
 from .pdf_generator import generar_pdf_pedido, filename_for
+from licensing.manager import license_manager
+from licensing.decorators import require_module
 from .serializers import (
     PedidoSerializer,
     PedidoDetalleSerializer,
@@ -26,6 +28,11 @@ class PedidoViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        if not license_manager.is_enabled(
+            "pedidos"
+        ):
+
+            return Pedido.objects.none()
         queryset = Pedido.objects.prefetch_related("items").select_related(
             "cliente",
             "cliente_web",
@@ -52,6 +59,22 @@ class PedidoViewSet(viewsets.ModelViewSet):
             return PedidoAdminUpdateSerializer
 
         return PedidoSerializer
+
+    @require_module(
+        "pedidos"
+    )
+    def list(
+        self,
+        request,
+        *args,
+        **kwargs,
+    ):
+
+        return super().list(
+            request,
+            *args,
+            **kwargs,
+        )
 
     def _is_admin_user(self, request):
         return bool(request.user and (request.user.is_staff or request.user.is_superuser))

@@ -1,5 +1,6 @@
-# gestion/configuracion/services.py
+# gestion/backend/configuracion/services.py
 from .models import ConfiguracionGlobal
+from licensing.manager import license_manager
 import os
 
 class ConfiguracionService:
@@ -32,13 +33,32 @@ class ConfiguracionService:
     
     @staticmethod
     def obtener_config_login():
-        """Obtener configuración específica para el login de Tkinter"""
-        config = ConfiguracionService.obtener_configuracion()
+        """
+        Configuración pública para login.
+        Devuelve módulos efectivos
+        (.env + licencia).
+        """
+
+        config = (
+            ConfiguracionService
+            .obtener_configuracion()
+        )
+
         return {
-            'nombre_empresa': config.nombre_empresa,
-            'nombre_fantasia': config.nombre_fantasia,
-            'descripcion_sistema': config.descripcion_sistema,
-            'logo_url': config.logo_tkinter_url,  # Usamos el logo tkinter existente
+            'nombre_empresa':
+                config.nombre_empresa,
+
+            'nombre_fantasia':
+                config.nombre_fantasia,
+
+            'descripcion_sistema':
+                config.descripcion_sistema,
+
+            'logo_url':
+                config.logo_tkinter_url,
+
+            'modulos':
+                license_manager.modules(),
         }
     
     @staticmethod
