@@ -1,4 +1,4 @@
-# gestion/sistema_general/settings.py
+# gestion/backend/sistema_general/settings.py
 import sys
 import os
 from pathlib import Path
@@ -322,6 +322,10 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    # limitado a 5 intentos por minuto por IP/cache key
+    'DEFAULT_THROTTLE_RATES': {
+        'admin_login': '5/min',
+    },
 }
 
 # Configuración generosa para archivos adjuntos

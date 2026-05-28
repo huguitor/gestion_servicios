@@ -1,8 +1,11 @@
+# gestion/backend/sistema_general/admin_auth.py
+
 from django.contrib.auth import authenticate
 from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 
@@ -10,13 +13,17 @@ class AdminLoginView(APIView):
     """
     Login exclusivo para el panel interno de administración React.
 
-    IMPORTANTE:
+    Seguridad:
     - No permite clientes web normales.
-    - Solo permite usuarios internos de Django con is_staff=True.
-    - Devuelve token DRF compatible con el resto del sistema.
+    - Solo permite usuarios internos con is_staff=True.
+    - Usa token DRF.
+    - Tiene rate limiting para reducir fuerza bruta.
     """
 
     permission_classes = [AllowAny]
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "admin_login"
 
     def post(self, request):
         username = str(request.data.get("username", "")).strip()
