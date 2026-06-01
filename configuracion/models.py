@@ -1,4 +1,5 @@
-# gestion/configuracion/models.py
+# gestion/backend/configuracion/models.py
+
 from django.db import models
 from .fields import RedimensionableImageField
 

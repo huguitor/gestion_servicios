@@ -137,7 +137,14 @@ def _draw_logo_zone(canvas_obj, _doc):
             )
         try:
             canvas_obj.drawImage(
-                logo_path, logo_x, logo_y, width=80, height=40, mask='auto'
+                logo_path,
+                logo_x,
+                logo_y,
+                width=80,
+                height=40,
+                mask='auto',
+                preserveAspectRatio=True,
+                anchor='c',
             )
         except Exception:
             _draw_logo_fallback(canvas_obj, logo_x, logo_y, empresa['nombre_empresa'])
@@ -156,9 +163,6 @@ def _draw_logo_zone(canvas_obj, _doc):
     if empresa['email']:
         canvas_obj.drawString(datos_x, A4[1] - 85, f"Email: {empresa['email']}")
 
-    canvas_obj.setStrokeColor(colors.gray)
-    canvas_obj.setLineWidth(0.5)
-    canvas_obj.line(40, A4[1] - 95, A4[0] - 40, A4[1] - 95)
     canvas_obj.restoreState()
 
 
@@ -324,48 +328,78 @@ def _build_totales_section(presupuesto):
 
 
 def _build_observaciones_section(styles, presupuesto):
-    """Observaciones del presupuesto + condiciones comerciales (de config si no hay)."""
+    """
+    Construye la sección de observaciones y condiciones comerciales del PDF.
+
+    Reglas:
+    - Si el presupuesto tiene observaciones, las imprime.
+    - Si el presupuesto tiene condiciones propias, usa esas.
+    - Si no tiene condiciones propias, usa las condiciones por defecto del sistema.
+    - Si el presupuesto tiene valido_hasta, muestra fecha exacta.
+    - Si no tiene valido_hasta, muestra los días configurados en el sistema.
+    """
+
     elements = []
 
     try:
-        cfg = ConfiguracionService.obtener_config_presupuestos()
-        condiciones_default = cfg.get('condiciones_comerciales') or ''
+        cfg = ConfiguracionService.obtener_config_presupuestos() or {}
     except Exception:
-        condiciones_default = ''
+        cfg = {}
+
+    condiciones_default = cfg.get("condiciones_comerciales") or ""
+
+    try:
+        dias_validez = int(cfg.get("dias_validez") or 30)
+    except (TypeError, ValueError):
+        dias_validez = 30
+
+    if dias_validez <= 0:
+        dias_validez = 30
 
     if presupuesto.observaciones:
-        elements.append(Paragraph("OBSERVACIONES", styles['Heading2']))
+        elements.append(Paragraph("OBSERVACIONES", styles["Heading2"]))
         elements.append(Spacer(1, 5))
-        obs = presupuesto.observaciones.replace('\n', '<br/>')
-        elements.append(Paragraph(obs, styles['Normal']))
+
+        observaciones = str(presupuesto.observaciones).replace("\n", "<br/>")
+        elements.append(Paragraph(observaciones, styles["Normal"]))
         elements.append(Spacer(1, 10))
 
     condiciones = presupuesto.condiciones_comerciales or condiciones_default
-    if condiciones:
-        elements.append(Paragraph("CONDICIONES COMERCIALES", styles['Heading2']))
-        elements.append(Spacer(1, 5))
 
-        validez = '15 días'
-        if presupuesto.valido_hasta:
-            try:
-                validez = f"hasta el {presupuesto.valido_hasta.strftime('%d/%m/%Y')}"
-            except Exception:
-                pass
+    if not condiciones:
+        return elements
 
-        lineas = condiciones.split('\n')
-        out = []
-        validez_set = False
-        for linea in lineas:
-            if any(k in linea.lower() for k in ('mantenimiento', 'validez', 'vigencia')):
-                out.append(f"Validez de oferta: {validez}")
-                validez_set = True
-            else:
-                out.append(linea)
-        if not validez_set:
-            out.append(f"Validez de oferta: {validez}")
+    elements.append(Paragraph("CONDICIONES COMERCIALES", styles["Heading2"]))
+    elements.append(Spacer(1, 5))
 
-        elements.append(Paragraph('<br/>'.join(out), styles['Normal']))
-        elements.append(Spacer(1, 15))
+    if presupuesto.valido_hasta:
+        validez = f"hasta el {presupuesto.valido_hasta.strftime('%d/%m/%Y')}"
+    else:
+        validez = f"{dias_validez} días"
+
+    lineas = str(condiciones).splitlines()
+    salida = []
+    validez_insertada = False
+
+    palabras_clave_validez = ("mantenimiento", "validez", "vigencia")
+
+    for linea in lineas:
+        linea_limpia = linea.strip()
+
+        if any(palabra in linea_limpia.lower() for palabra in palabras_clave_validez):
+            if not validez_insertada:
+                salida.append(f"Validez de oferta: {validez}")
+                validez_insertada = True
+            continue
+
+        if linea_limpia:
+            salida.append(linea_limpia)
+
+    if not validez_insertada:
+        salida.append(f"Validez de oferta: {validez}")
+
+    elements.append(Paragraph("<br/>".join(salida), styles["Normal"]))
+    elements.append(Spacer(1, 15))
 
     return elements
 

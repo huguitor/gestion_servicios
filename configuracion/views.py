@@ -4,7 +4,6 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser, AllowAny
-from rest_framework.throttling import AnonRateThrottle
 
 from .models import ConfiguracionGlobal
 from .serializers import ConfiguracionGlobalSerializer
@@ -43,7 +42,6 @@ class ConfiguracionGlobalViewSet(viewsets.ModelViewSet):
         detail=False,
         methods=["get"],
         permission_classes=[AllowAny],
-        throttle_classes=[AnonRateThrottle],
     )
     def config_login(self, request):
         """
@@ -81,10 +79,10 @@ class ConfiguracionGlobalViewSet(viewsets.ModelViewSet):
             "modulos": modulos,
         }
 
-        if request and public_data.get("logo_url"):
-            public_data["logo_absolute_url"] = request.build_absolute_uri(
-                public_data["logo_url"]
-            )
+        if public_data.get("logo_url"):
+            public_data["logo_absolute_url"] = public_data["logo_url"]
+        else:
+            public_data["logo_absolute_url"] = None
 
         print(f"🔐 Configuración login pública enviada: {public_data}")
 

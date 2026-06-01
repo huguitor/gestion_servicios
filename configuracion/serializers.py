@@ -1,4 +1,5 @@
-# gestion/configuracion/serializers.py
+# gestion/backend/configuracion/serializers.py
+
 from rest_framework import serializers
 from .models import ConfiguracionGlobal
 
@@ -100,67 +101,66 @@ class ConfiguracionGlobalSerializer(serializers.ModelSerializer):
             'imagen_publicitaria_3_absolute_url',
         ]
    
-    # 👇 Métodos para obtener URLs relativas
+    # 👇 Métodos para obtener URLs seguras
+    def _safe_file_url(self, obj, field_name):
+        archivo = getattr(obj, field_name, None)
+
+        if archivo and hasattr(archivo, "url"):
+            try:
+                return archivo.url
+            except ValueError:
+                return None
+
+        return None
+
+    def _safe_absolute_file_url(self, obj, field_name):
+        url = self._safe_file_url(obj, field_name)
+
+        if not url:
+            return None
+
+        request = self.context.get("request")
+
+        if request is not None:
+            return request.build_absolute_uri(url)
+
+        return url
+
     def get_logo_principal_url(self, obj):
-        """Obtener URL del logo principal"""
-        return obj.logo_principal_url
+        return self._safe_file_url(obj, "logo_principal")
    
     def get_logo_favicon_url(self, obj):
-        """Obtener URL del favicon"""
-        return obj.logo_favicon_url
+        return self._safe_file_url(obj, "logo_favicon")
    
     def get_logo_tkinter_url(self, obj):
-        """Obtener URL del logo para Tkinter"""
-        return obj.logo_tkinter_url
+        return self._safe_file_url(obj, "logo_tkinter")
    
     def get_imagen_publicitaria_1_url(self, obj):
-        """Obtener URL de imagen publicitaria 1"""
-        return obj.imagen_publicitaria_1_url
+        return self._safe_file_url(obj, "imagen_publicitaria_1")
    
     def get_imagen_publicitaria_2_url(self, obj):
-        """Obtener URL de imagen publicitaria 2"""
-        return obj.imagen_publicitaria_2_url
+        return self._safe_file_url(obj, "imagen_publicitaria_2")
    
     def get_imagen_publicitaria_3_url(self, obj):
-        """Obtener URL de imagen publicitaria 3"""
-        return obj.imagen_publicitaria_3_url
-   
-    # 👇 Métodos para obtener URLs absolutas
+        return self._safe_file_url(obj, "imagen_publicitaria_3")
+
     def get_logo_principal_absolute_url(self, obj):
-        """Obtener URL absoluta del logo principal"""
-        request = self.context.get('request')
-        absolute_urls = obj.get_absolute_url(request)
-        return absolute_urls.get('logo_principal')
+        return self._safe_absolute_file_url(obj, "logo_principal")
    
     def get_logo_favicon_absolute_url(self, obj):
-        """Obtener URL absoluta del favicon"""
-        request = self.context.get('request')
-        absolute_urls = obj.get_absolute_url(request)
-        return absolute_urls.get('logo_favicon')
+        return self._safe_absolute_file_url(obj, "logo_favicon")
    
     def get_logo_tkinter_absolute_url(self, obj):
-        """Obtener URL absoluta del logo para Tkinter"""
-        request = self.context.get('request')
-        absolute_urls = obj.get_absolute_url(request)
-        return absolute_urls.get('logo_tkinter')
+        return self._safe_absolute_file_url(obj, "logo_tkinter")
    
     def get_imagen_publicitaria_1_absolute_url(self, obj):
-        """Obtener URL absoluta de imagen publicitaria 1"""
-        request = self.context.get('request')
-        absolute_urls = obj.get_absolute_url(request)
-        return absolute_urls.get('imagen_publicitaria_1')
+        return self._safe_absolute_file_url(obj, "imagen_publicitaria_1")
    
     def get_imagen_publicitaria_2_absolute_url(self, obj):
-        """Obtener URL absoluta de imagen publicitaria 2"""
-        request = self.context.get('request')
-        absolute_urls = obj.get_absolute_url(request)
-        return absolute_urls.get('imagen_publicitaria_2')
+        return self._safe_absolute_file_url(obj, "imagen_publicitaria_2")
    
     def get_imagen_publicitaria_3_absolute_url(self, obj):
-        """Obtener URL absoluta de imagen publicitaria 3"""
-        request = self.context.get('request')
-        absolute_urls = obj.get_absolute_url(request)
-        return absolute_urls.get('imagen_publicitaria_3')
+        return self._safe_absolute_file_url(obj, "imagen_publicitaria_3")
    
     # ⭐⭐ NOTA: Ya NO existe el método get_estado_sincronizacion_numeracion()
     # La numeración ahora se maneja exclusivamente desde Comprobante
