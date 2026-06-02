@@ -197,6 +197,7 @@ INSTALLED_APPS = [
     'impuestos',
     'comprobantes',
     'pedidos',
+    'archivos',
     'web_publica',
     'backup',  # Tanda 7: backup/restauración granular
     'django_filters',

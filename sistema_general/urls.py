@@ -1,17 +1,18 @@
-# sistema_general/urls.py
+# gestion/backend/sistema_general/urls.py
 
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.http import JsonResponse
-from rest_framework.authtoken.views import obtain_auth_token
-from django.conf import settings
 from django.views.static import serve
+from django.conf import settings
+
+from rest_framework.authtoken.views import obtain_auth_token
 
 from .admin_auth import AdminLoginView
 
 
 # ==========================================================
-# FEATURE FLAGS
+# HELPERS
 # ==========================================================
 
 def modulo_activo(nombre):
@@ -34,11 +35,6 @@ def modulo_activo(nombre):
 def api_root(request):
     """
     Endpoint raíz del backend.
-
-    En la arquitectura Docker actual,
-    los frontends viven en contenedores React.
-
-    Django solamente expone API.
     """
 
     return JsonResponse({
@@ -55,6 +51,7 @@ def api_root(request):
             "pedidos": settings.MODULO_PEDIDOS,
             "remitos": settings.MODULO_REMITOS,
             "stock": settings.MODULO_STOCK,
+            "archivos": True,
         }
     })
 
@@ -65,21 +62,33 @@ def api_root(request):
 
 urlpatterns = [
 
-    path("", api_root, name="api_root"),
+    # API ROOT
+    path(
+        "",
+        api_root,
+        name="api_root"
+    ),
 
-    path("admin/", admin.site.urls),
+    # DJANGO ADMIN
+    path(
+        "admin/",
+        admin.site.urls
+    ),
 
+    # DRF LOGIN
     path(
         "api-auth/",
         include("rest_framework.urls")
     ),
 
+    # TOKEN AUTH
     path(
         "api/token/",
         obtain_auth_token,
         name="api_token"
     ),
 
+    # LOGIN ADMIN PERSONALIZADO
     path(
         "api/admin/login/",
         AdminLoginView.as_view(),
@@ -108,6 +117,12 @@ urlpatterns += [
     path(
         "api/comprobantes/",
         include("comprobantes.urls")
+    ),
+
+    # NUEVO REPOSITORIO CENTRAL DE ARCHIVOS
+    path(
+        "api/archivos/",
+        include("archivos.urls")
     ),
 
 ]
@@ -246,21 +261,17 @@ if modulo_activo("MODULO_BACKUP"):
 
 
 # ==========================================================
-# MEDIA
+# MEDIA FILES
 # ==========================================================
 
 urlpatterns += [
 
     re_path(
-
         r"^media/(?P<path>.*)$",
-
         serve,
-
         {
             "document_root": settings.MEDIA_ROOT,
         }
-
     ),
 
 ]

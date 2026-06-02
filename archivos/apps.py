@@ -1,6 +1,9 @@
+# gestion/backend/archivos/apps.py
+
 from django.apps import AppConfig
 
 
 class ArchivosConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name = 'archivos'
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "archivos"
+    verbose_name = "Repositorio de Archivos"
