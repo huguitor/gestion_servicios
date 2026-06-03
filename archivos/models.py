@@ -1,13 +1,38 @@
 # gestion/backend/archivos/models.py
 
 import os
-import hashlib
-import mimetypes
 
 from django.conf import settings
 from django.db import models
+from django.utils.text import slugify
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+
+from .services import (
+    procesar_metadatos_archivo
+)
+
+
+def archivo_upload_path(instance, filename):
+    """
+    Define la ubicación física del archivo.
+
+    Ejemplos:
+
+    media/archivos/imagen-producto-principal/foto1.jpg
+    media/archivos/manual/manual_motor.pdf
+    media/archivos/plano-cad/plano_v2.dwg
+    """
+
+    carpeta = "otros"
+
+    if (
+        instance.tipo
+        and instance.tipo.carpeta
+    ):
+        carpeta = instance.tipo.carpeta
+
+    return f"archivos/{carpeta}/{filename}"
 
 
 class TipoArchivo(models.Model):
@@ -18,6 +43,16 @@ class TipoArchivo(models.Model):
     nombre = models.CharField(
         max_length=100,
         unique=True
+    )
+
+    carpeta = models.SlugField(
+        max_length=100,
+        unique=True,
+        blank=True,
+        help_text=(
+            "Carpeta física donde se almacenarán "
+            "los archivos de este tipo."
+        )
     )
 
     descripcion = models.TextField(
@@ -43,6 +78,15 @@ class TipoArchivo(models.Model):
     def __str__(self):
         return self.nombre
 
+    def save(self, *args, **kwargs):
+
+        if not self.carpeta:
+            self.carpeta = slugify(
+                self.nombre
+            )
+
+        super().save(*args, **kwargs)
+
 
 class Archivo(models.Model):
     """
@@ -65,7 +109,7 @@ class Archivo(models.Model):
     )
 
     archivo = models.FileField(
-        upload_to="archivos/%Y/%m/"
+        upload_to=archivo_upload_path
     )
 
     thumbnail = models.ImageField(
@@ -136,17 +180,34 @@ class Archivo(models.Model):
 
     @property
     def nombre_archivo(self):
-        return os.path.basename(self.archivo.name)
+        return os.path.basename(
+            self.archivo.name
+        )
 
     def save(self, *args, **kwargs):
+        """
+        Completa automáticamente los datos básicos
+        del archivo y delega el procesamiento de
+        metadatos al módulo services.
+        """
 
         if self.archivo:
 
+            # Nombre original
             if not self.nombre_original:
-                self.nombre_original = os.path.basename(
-                    self.archivo.name
+                self.nombre_original = (
+                    os.path.basename(
+                        self.archivo.name
+                    )
                 )
 
+            # Nombre visible
+            if not self.nombre:
+                self.nombre = (
+                    self.nombre_original
+                )
+
+            # Extensión
             _, extension = os.path.splitext(
                 self.archivo.name
             )
@@ -156,28 +217,12 @@ class Archivo(models.Model):
                 .replace(".", "")
             )
 
-            mime_type, _ = mimetypes.guess_type(
-                self.archivo.name
-            )
-
-            self.mime_type = (
-                mime_type
-                or "application/octet-stream"
-            )
-
-            self.tamano_bytes = self.archivo.size
-
-            sha256_hash = hashlib.sha256()
-
-            for chunk in self.archivo.chunks():
-                sha256_hash.update(chunk)
-
-            self.checksum = (
-                sha256_hash.hexdigest()
+            # MIME, tamaño y checksum
+            procesar_metadatos_archivo(
+                self
             )
 
         super().save(*args, **kwargs)
-
 
 class ArchivoRelacion(models.Model):
     """
@@ -235,7 +280,10 @@ class ArchivoRelacion(models.Model):
     class Meta:
         verbose_name = "Relación de Archivo"
         verbose_name_plural = "Relaciones de Archivos"
-        ordering = ["orden", "-creado"]
+        ordering = [
+            "orden",
+            "-creado",
+        ]
 
         unique_together = (
             "content_type",

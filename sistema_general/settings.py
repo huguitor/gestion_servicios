@@ -311,20 +311,22 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
-        #'rest_framework.authentication.SessionAuthentication',
     ],
+
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
     ],
-    # ⭐ Deshabilitar CSRF para APIs (seguro con Token Authentication)
+
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
-    # limitado a 5 intentos por minuto por IP/cache key
+
     'DEFAULT_THROTTLE_RATES': {
         'admin_login': '5/min',
     },
@@ -332,25 +334,141 @@ REST_FRAMEWORK = {
 
 # Configuración generosa para archivos adjuntos
 MAX_TAMAÑO_ADJUNTO = 500 * 1024 * 1024  # 500 MB por archivo
-MAX_ADJUNTOS_POR_PRESUPUESTO = 100  # Máximo de archivos por presupuesto
-TIEMPO_SUBIDA_TIMEOUT = 300  # 5 minutos para subidas grandes
+MAX_ADJUNTOS_POR_PRESUPUESTO = 100      # Máximo de archivos por presupuesto
+TIEMPO_SUBIDA_TIMEOUT = 300             # 5 minutos para subidas grandes
 
 # Extensiones permitidas (lista amplia)
 EXTENSIONES_PERMITIDAS = {
-    'plano': ['pdf', 'dwg', 'dxf', 'skp', 'rvt', 'ifc'],
-    'foto': ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'heic', 'tiff'],
-    'diagrama': ['pdf', 'png', 'jpg', 'jpeg', 'vsd', 'vsdx'],
-    'contrato': ['pdf', 'doc', 'docx', 'xls', 'xlsx'],
-    'comunicacion': ['pdf', 'eml', 'msg', 'txt'],
-    'otro': ['zip', 'rar', '7z', 'csv', 'json', 'xml']
+    'plano': [
+        'pdf', 'dwg', 'dxf', 'skp', 'rvt', 'ifc'
+    ],
+
+    'foto': [
+        'jpg', 'jpeg', 'png', 'gif',
+        'bmp', 'webp', 'heic', 'tiff'
+    ],
+
+    'diagrama': [
+        'pdf', 'png', 'jpg', 'jpeg',
+        'vsd', 'vsdx'
+    ],
+
+    'documento': [
+        'pdf',
+        'doc', 'docx',
+        'xls', 'xlsx',
+        'ppt', 'pptx'
+    ],
+
+    'contrato': [
+        'pdf',
+        'doc', 'docx',
+        'xls', 'xlsx'
+    ],
+
+    'comunicacion': [
+        'pdf',
+        'eml',
+        'msg',
+        'txt'
+    ],
+
+    'otro': [
+        'zip',
+        'rar',
+        '7z',
+        'csv',
+        'json',
+        'xml'
+    ]
 }
 
-# Configuración Django para archivos grandes
-DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
-FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000  # 500 MB
+# ==========================================================
+# APP ARCHIVOS
+# ==========================================================
 
-# ========== DEBUG INFO SOLO CUANDO SE EJECUTA ==========
-# Esto se ejecuta cuando Django inicia, NO al compilar
+# Tamaño máximo permitido por archivo (MB)
+ARCHIVOS_MAX_MB = 500
+
+# MIME types permitidos
+ARCHIVOS_MIME_PERMITIDOS = [
+
+    # ------------------------------------------------------
+    # Imágenes
+    # ------------------------------------------------------
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/bmp',
+    'image/tiff',
+    'image/heic',
+    'image/heif',
+
+    # ------------------------------------------------------
+    # PDF
+    # ------------------------------------------------------
+    'application/pdf',
+
+    # ------------------------------------------------------
+    # Microsoft Office / OpenXML
+    # ------------------------------------------------------
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+
+    # ------------------------------------------------------
+    # Texto / Datos
+    # ------------------------------------------------------
+    'text/plain',
+    'text/csv',
+    'application/json',
+    'application/xml',
+    'text/xml',
+
+    # ------------------------------------------------------
+    # Comprimidos
+    # ------------------------------------------------------
+    'application/zip',
+    'application/x-rar-compressed',
+    'application/vnd.rar',
+    'application/x-7z-compressed',
+
+    # ------------------------------------------------------
+    # Video
+    # ------------------------------------------------------
+    'video/mp4',
+    'video/webm',
+    'video/quicktime',
+    'video/x-msvideo',      # AVI
+    'video/x-matroska',     # MKV
+]
+
+# ==========================================================
+# CONFIGURACIÓN DJANGO PARA ARCHIVOS GRANDES
+# ==========================================================
+
+# Tamaño máximo del request completo.
+# Se deja un margen superior al límite por archivo
+# para contemplar multipart/form-data y metadatos.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 600 * 1024 * 1024  # 600 MB
+
+# Archivos mayores a 5 MB pasan automáticamente
+# a archivos temporales en disco, evitando consumir RAM.
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5 MB
+
+# ==========================================================
+# DEBUG INFO SOLO CUANDO SE EJECUTA
+# ==========================================================
+
+# Esto se ejecuta cuando Django inicia,
+# NO al compilar el ejecutable.
+
 if __name__ == "__main__" or getattr(sys, 'frozen', False):
     print(f"🔧 MEDIA_ROOT configurado en: {MEDIA_ROOT}")
     print(f"🔧 DATA_DIR_ABS: {DATA_DIR_ABS}")

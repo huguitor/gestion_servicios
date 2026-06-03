@@ -3,27 +3,38 @@
 import hashlib
 import mimetypes
 
+from django.conf import settings
+
 try:
     import magic
 except ImportError:
     magic = None
 
 
+# ==========================================================
+# CHECKSUM
+# ==========================================================
+
 def calcular_checksum_sha256(file_obj):
     """
-    Calcula hash SHA256 del archivo.
+    Calcula SHA256 del archivo.
     """
 
     sha256_hash = hashlib.sha256()
 
     try:
+
         file_obj.seek(0)
 
         if hasattr(file_obj, "chunks"):
+
             for chunk in file_obj.chunks():
                 sha256_hash.update(chunk)
+
         else:
-            sha256_hash.update(file_obj.read())
+            sha256_hash.update(
+                file_obj.read()
+            )
 
         file_obj.seek(0)
 
@@ -33,10 +44,18 @@ def calcular_checksum_sha256(file_obj):
         return ""
 
 
+# ==========================================================
+# MIME TYPE
+# ==========================================================
+
 def detectar_mime_type(file_obj):
     """
-    Detecta MIME real usando python-magic.
-    Si no existe la librería, usa mimetypes.
+    Detecta el MIME real.
+
+    Prioridad:
+
+    1) python-magic
+    2) mimetypes
     """
 
     try:
@@ -45,7 +64,9 @@ def detectar_mime_type(file_obj):
 
             file_obj.seek(0)
 
-            contenido = file_obj.read(2048)
+            contenido = file_obj.read(
+                4096
+            )
 
             mime = magic.from_buffer(
                 contenido,
@@ -57,15 +78,28 @@ def detectar_mime_type(file_obj):
             if mime:
                 return mime
 
-        nombre = getattr(file_obj, "name", "")
+        nombre = getattr(
+            file_obj,
+            "name",
+            ""
+        )
 
-        mime, _ = mimetypes.guess_type(nombre)
+        mime, _ = mimetypes.guess_type(
+            nombre
+        )
 
-        return mime or "application/octet-stream"
+        return (
+            mime
+            or "application/octet-stream"
+        )
 
     except Exception:
         return "application/octet-stream"
 
+
+# ==========================================================
+# TAMAÑO
+# ==========================================================
 
 def obtener_tamano_archivo(file_obj):
     """
@@ -74,16 +108,47 @@ def obtener_tamano_archivo(file_obj):
 
     try:
         return file_obj.size
+
     except Exception:
         return 0
 
 
-def procesar_metadatos_archivo(archivo_instance):
+# ==========================================================
+# VALIDACIÓN MIME
+# ==========================================================
+
+def validar_mime_permitido(file_obj):
+    """
+    Verifica si el MIME detectado
+    está permitido por configuración.
+    """
+
+    mime = detectar_mime_type(
+        file_obj
+    )
+
+    permitidos = getattr(
+        settings,
+        "ARCHIVOS_MIME_PERMITIDOS",
+        []
+    )
+
+    return mime in permitidos
+
+
+# ==========================================================
+# METADATOS
+# ==========================================================
+
+def procesar_metadatos_archivo(
+    archivo_instance
+):
     """
     Completa automáticamente:
-    - MIME Type
-    - Tamaño
-    - SHA256
+
+    - mime_type
+    - tamano_bytes
+    - checksum
     """
 
     file_obj = archivo_instance.archivo
@@ -93,20 +158,53 @@ def procesar_metadatos_archivo(archivo_instance):
 
     try:
 
-        archivo_instance.mime_type = detectar_mime_type(
-            file_obj
+        archivo_instance.mime_type = (
+            detectar_mime_type(
+                file_obj
+            )
         )
 
-        archivo_instance.tamano_bytes = obtener_tamano_archivo(
-            file_obj
+        archivo_instance.tamano_bytes = (
+            obtener_tamano_archivo(
+                file_obj
+            )
         )
 
-        archivo_instance.checksum = calcular_checksum_sha256(
-            file_obj
+        archivo_instance.checksum = (
+            calcular_checksum_sha256(
+                file_obj
+            )
         )
 
     except Exception:
 
-        archivo_instance.mime_type = "application/octet-stream"
+        archivo_instance.mime_type = (
+            "application/octet-stream"
+        )
+
         archivo_instance.tamano_bytes = 0
+
         archivo_instance.checksum = ""
+
+
+# ==========================================================
+# DEDUPLICACIÓN (FUTURO)
+# ==========================================================
+
+def obtener_checksum_archivo(
+    file_obj
+):
+    """
+    Alias semántico para futuras
+    funcionalidades de deduplicación.
+
+    Ejemplo futuro:
+
+    Archivo.objects.filter(
+        checksum=obtener_checksum_archivo(...)
+    )
+    """
+
+    return calcular_checksum_sha256(
+        file_obj
+    )
