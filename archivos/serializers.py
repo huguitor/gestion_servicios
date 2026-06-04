@@ -1,17 +1,15 @@
 # gestion/backend/archivos/serializers.py
 
-import os
-
-from django.conf import settings
-
 from rest_framework import serializers
+
+from django.contrib.contenttypes.models import ContentType
 
 from .models import (
     TipoArchivo,
     Archivo,
     ArchivoRelacion,
 )
-
+from .services import FileStorage
 
 class TipoArchivoSerializer(serializers.ModelSerializer):
     """
@@ -78,6 +76,12 @@ class ArchivoSerializer(serializers.ModelSerializer):
         ]
 
         read_only_fields = [
+            # El archivo y su metadata SOLO se crean vía
+            # FileService.upload(). Este serializer es de lectura
+            # para esos campos; nunca persiste ni analiza archivos.
+            "archivo",
+            "thumbnail",
+
             "nombre_original",
 
             "mime_type",
@@ -89,67 +93,6 @@ class ArchivoSerializer(serializers.ModelSerializer):
             "creado",
             "actualizado",
         ]
-
-    # ==================================================
-    # VALIDACIONES
-    # ==================================================
-
-    def validate_archivo(self, value):
-        """
-        Valida:
-
-        - Tamaño máximo
-        - Extensión permitida
-
-        La validación de MIME real se agregará
-        posteriormente usando python-magic.
-        """
-
-        if not value:
-            return value
-
-        # ----------------------------------------------
-        # Tamaño máximo
-        # ----------------------------------------------
-
-        max_size = (
-            settings.ARCHIVOS_MAX_MB
-            * 1024
-            * 1024
-        )
-
-        if value.size > max_size:
-            raise serializers.ValidationError(
-                (
-                    f"El archivo supera el límite "
-                    f"de {settings.ARCHIVOS_MAX_MB} MB."
-                )
-            )
-
-        # ----------------------------------------------
-        # Extensión
-        # ----------------------------------------------
-
-        extension = (
-            os.path.splitext(value.name)[1]
-            .lower()
-            .replace(".", "")
-        )
-
-        extensiones_permitidas = set()
-
-        for grupo in settings.EXTENSIONES_PERMITIDAS.values():
-            extensiones_permitidas.update(grupo)
-
-        if extension not in extensiones_permitidas:
-            raise serializers.ValidationError(
-                (
-                    f"Extensión no permitida: "
-                    f".{extension}"
-                )
-            )
-
-        return value
 
     # ==================================================
     # CAMPOS CALCULADOS
@@ -170,44 +113,52 @@ class ArchivoSerializer(serializers.ModelSerializer):
 
     def get_archivo_url(self, obj):
         """
-        Devuelve URL absoluta del archivo.
+        Obtiene URL del archivo vía FileStorage.
+        
+        IMPORTANTE: No usa obj.archivo.url directamente.
+        Va a través de FileStorage para respetar la abstracción.
+        
+        Si mañana cambias a S3/MinIO, esto funciona automático.
         """
-
-        request = self.context.get("request")
 
         if not obj.archivo:
             return None
 
         try:
+            # Usar FileStorage, no obj.archivo.url
+            url = FileStorage.url(obj.archivo.name)
 
-            if request:
-                return request.build_absolute_uri(
-                    obj.archivo.url
-                )
+            # Si tenemos request, hacer URL absoluta
+            request = self.context.get("request")
+            if request and url:
+                return request.build_absolute_uri(url)
 
-            return obj.archivo.url
+            return url
 
         except Exception:
             return None
 
     def get_thumbnail_url(self, obj):
         """
-        Devuelve URL absoluta del thumbnail.
+        Obtiene URL del thumbnail vía FileStorage.
+        
+        IMPORTANTE: No usa obj.thumbnail.url directamente.
+        Va a través de FileStorage para respetar la abstracción.
         """
-
-        request = self.context.get("request")
 
         if not obj.thumbnail:
             return None
 
         try:
+            # Usar FileStorage, no obj.thumbnail.url
+            url = FileStorage.url(obj.thumbnail.name)
 
-            if request:
-                return request.build_absolute_uri(
-                    obj.thumbnail.url
-                )
+            # Si tenemos request, hacer URL absoluta
+            request = self.context.get("request")
+            if request and url:
+                return request.build_absolute_uri(url)
 
-            return obj.thumbnail.url
+            return url
 
         except Exception:
             return None
@@ -248,3 +199,59 @@ class ArchivoRelacionSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "creado",
         ]
+
+class ArchivoUploadSimpleSerializer(serializers.Serializer):
+    """
+    Serializer de INPUT para el endpoint upload_simple.
+    
+    Solo VALIDA que los datos de entrada sean correctos.
+    
+    La lógica de crear Archivo + ArchivoRelacion está en
+    FileService.upload() que es el punto único.
+    
+    Esto es una capa de validación de inputs solamente.
+    """
+
+    archivo = serializers.FileField()
+    tipo = serializers.PrimaryKeyRelatedField(
+        queryset=TipoArchivo.objects.all()
+    )
+
+    content_type = serializers.CharField(required=False, allow_blank=True)
+    object_id = serializers.IntegerField(required=False)
+
+    rol = serializers.CharField(required=False, default="principal")
+    observaciones = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        """
+        Valida que los datos de entrada sean coherentes.
+        
+        Si hay content_type, debe haber object_id.
+        El content_type debe existir en BD.
+        """
+
+        content_type_str = attrs.get("content_type", "").strip()
+        object_id = attrs.get("object_id")
+
+        # Si hay content_type, debe haber object_id
+        if content_type_str and not object_id:
+            raise serializers.ValidationError(
+                {"object_id": "Requerido si especificas content_type"}
+            )
+
+        # Si content_type especificado, verificar que exista
+        if content_type_str:
+            try:
+                content_type_obj = ContentType.objects.get(
+                    model=content_type_str
+                )
+                attrs["content_type_obj"] = content_type_obj
+            except ContentType.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"content_type": f"Modelo no existe: {content_type_str}"}
+                )
+        else:
+            attrs["content_type_obj"] = None
+
+        return attrs

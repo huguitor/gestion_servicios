@@ -1,8 +1,7 @@
-# gestion/backend/archivos/views.py
-
 from rest_framework import status
 from rest_framework import viewsets
 from rest_framework.response import Response
+from rest_framework.decorators import action
 
 from rest_framework.parsers import (
     MultiPartParser,
@@ -25,9 +24,15 @@ from .serializers import (
     TipoArchivoSerializer,
     ArchivoSerializer,
     ArchivoRelacionSerializer,
+    ArchivoUploadSimpleSerializer,
 )
 
+from .services import FileService
 
+
+# ==========================================================
+# TIPO ARCHIVO
+# ==========================================================
 class TipoArchivoViewSet(viewsets.ModelViewSet):
     """
     Catálogo de tipos de archivos.
@@ -61,6 +66,9 @@ class TipoArchivoViewSet(viewsets.ModelViewSet):
     ]
 
 
+# ==========================================================
+# ARCHIVOS
+# ==========================================================
 class ArchivoViewSet(viewsets.ModelViewSet):
     """
     Repositorio central de archivos.
@@ -107,59 +115,59 @@ class ArchivoViewSet(viewsets.ModelViewSet):
         "-creado",
     ]
 
+    # -----------------------------------------
+    # CONTEXTO
+    # -----------------------------------------
     def get_serializer_context(self):
-        """
-        Agrega request al contexto.
-        """
-
         context = super().get_serializer_context()
-
-        context.update({
-            "request": self.request
-        })
-
+        context["request"] = self.request
         return context
 
-    def perform_create(self, serializer):
+    # -----------------------------------------
+    # CREATE BLOQUEADO (punto único = upload_simple)
+    # -----------------------------------------
+    def create(self, request, *args, **kwargs):
         """
-        Guarda automáticamente el usuario
-        que cargó el archivo.
-        """
+        Creación deshabilitada en el endpoint estándar.
 
-        serializer.save(
-            usuario_creacion=self.request.user
+        Un Archivo SOLO se crea vía FileService.upload(), expuesto
+        en la acción `upload_simple`. Esto garantiza que toda
+        instancia tenga metadata (mime_type, checksum, extension,
+        tamaño) y validación. Crear por aquí dejaría registros sin
+        analizar.
+        """
+        return Response(
+            {
+                "success": False,
+                "error": (
+                    "Creación no permitida en este endpoint. "
+                    "Usá POST /api/archivos/archivos/upload_simple/"
+                ),
+            },
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
+    # -----------------------------------------
+    # SOFT DELETE
+    # -----------------------------------------
     def destroy(self, request, *args, **kwargs):
-        """
-        Soft delete.
-
-        No elimina físicamente el archivo.
-        """
-
         instance = self.get_object()
 
         instance.activo = False
-        instance.save(
-            update_fields=["activo"]
-        )
+        instance.save(update_fields=["activo"])
 
         return Response(
             {
-                "detail": (
-                    "Archivo desactivado "
-                    "correctamente."
-                )
+                "success": True,
+                "message": "Archivo desactivado correctamente"
             },
             status=status.HTTP_200_OK,
         )
 
+    # -----------------------------------------
+    # QUERYSET CON FILTRO
+    # -----------------------------------------
     def get_queryset(self):
-        """
-        Permite ocultar archivos inactivos
-        por defecto.
-        """
-
         queryset = (
             Archivo.objects
             .select_related("tipo")
@@ -173,15 +181,116 @@ class ArchivoViewSet(viewsets.ModelViewSet):
         )
 
         if incluir_inactivos != "true":
-            queryset = queryset.filter(
-                activo=True
+            queryset = queryset.filter(activo=True)
+
+        return queryset.order_by("-creado")
+
+    # -----------------------------------------
+    # UPLOAD SIMPLE
+    # -----------------------------------------
+    @action(
+        detail=False,
+        methods=["post"],
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_simple(self, request):
+        """
+        Upload simple: archivo + tipo + opcionalmente relación.
+        
+        Flujo:
+        1. Validar request data (serializer)
+        2. Llamar FileService.upload() - que hace TODO
+        3. Retornar resultado
+        
+        FileService.upload() es el punto único:
+        - valida archivo
+        - analiza metadata
+        - guarda en storage
+        - crea Archivo en BD
+        - crea ArchivoRelacion (si aplica)
+        
+        Request data:
+        {
+            "archivo": <file>,
+            "tipo": <tipo_id>,
+            "content_type": "producto",  [opcional]
+            "object_id": 42,              [opcional]
+            "rol": "principal",           [opcional]
+            "observaciones": "..."        [opcional]
+        }
+        """
+
+        # 1. VALIDAR REQUEST DATA
+        serializer = ArchivoUploadSimpleSerializer(
+            data=request.data
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "success": False,
+                    "errors": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        return queryset.order_by(
-            "-creado"
+        validated_data = serializer.validated_data
+
+        # 2. PREPARAR PARÁMETROS PARA FileService.upload()
+        file_obj = validated_data["archivo"]
+        tipo = validated_data["tipo"]
+        content_type_obj = validated_data.get("content_type_obj")
+        object_id = validated_data.get("object_id")
+        rol = validated_data.get("rol", "principal")
+        observaciones = validated_data.get("observaciones", "")
+        usuario = (
+            request.user
+            if request.user.is_authenticated
+            else None
+        )
+
+        # 3. LLAMAR FileService.upload() - PUNTO ÚNICO
+        try:
+            result = FileService.upload(
+                file_obj=file_obj,
+                tipo=tipo,
+                content_type=content_type_obj,
+                object_id=object_id,
+                rol=rol,
+                observaciones=observaciones,
+                usuario=usuario,
+                perform_mime_validation=True,
+            )
+        except ValueError as e:
+            return Response(
+                {
+                    "success": False,
+                    "error": str(e)
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {
+                    "success": False,
+                    "error": f"Error interno: {str(e)}"
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        # 4. RETORNAR RESULTADO
+        return Response(
+            {
+                "success": True,
+                "data": result
+            },
+            status=status.HTTP_201_CREATED
         )
 
 
+# ==========================================================
+# RELACIONES
+# ==========================================================
 class ArchivoRelacionViewSet(viewsets.ModelViewSet):
     """
     Relaciones polimórficas entre archivos
@@ -200,9 +309,7 @@ class ArchivoRelacionViewSet(viewsets.ModelViewSet):
         )
     )
 
-    serializer_class = (
-        ArchivoRelacionSerializer
-    )
+    serializer_class = ArchivoRelacionSerializer
 
     filter_backends = [
         DjangoFilterBackend,
@@ -227,14 +334,6 @@ class ArchivoRelacionViewSet(viewsets.ModelViewSet):
     ]
 
     def get_serializer_context(self):
-        """
-        Agrega request al contexto.
-        """
-
         context = super().get_serializer_context()
-
-        context.update({
-            "request": self.request
-        })
-
+        context["request"] = self.request
         return context

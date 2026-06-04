@@ -8,10 +8,6 @@ from django.utils.text import slugify
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 
-from .services import (
-    procesar_metadatos_archivo
-)
-
 
 def archivo_upload_path(instance, filename):
     """
@@ -184,45 +180,11 @@ class Archivo(models.Model):
             self.archivo.name
         )
 
-    def save(self, *args, **kwargs):
-        """
-        Completa automáticamente los datos básicos
-        del archivo y delega el procesamiento de
-        metadatos al módulo services.
-        """
+    # NOTA: El modelo es PASIVO. No tiene save() custom ni calcula
+    # metadata. Todo análisis (mime_type, extension, checksum,
+    # tamano_bytes) lo provee FileService.upload(), que es el ÚNICO
+    # punto que crea instancias de Archivo.
 
-        if self.archivo:
-
-            # Nombre original
-            if not self.nombre_original:
-                self.nombre_original = (
-                    os.path.basename(
-                        self.archivo.name
-                    )
-                )
-
-            # Nombre visible
-            if not self.nombre:
-                self.nombre = (
-                    self.nombre_original
-                )
-
-            # Extensión
-            _, extension = os.path.splitext(
-                self.archivo.name
-            )
-
-            self.extension = (
-                extension.lower()
-                .replace(".", "")
-            )
-
-            # MIME, tamaño y checksum
-            procesar_metadatos_archivo(
-                self
-            )
-
-        super().save(*args, **kwargs)
 
 class ArchivoRelacion(models.Model):
     """
