@@ -267,6 +267,20 @@ class Command(BaseCommand):
         if "no-image" in url_lower or "placeholder" in url_lower:
             return
 
+        # La multimedia vive ahora en el módulo archivos. Vinculamos la
+        # imagen como rol "principal" vía FileService (punto único).
+        from django.contrib.contenttypes.models import ContentType
+        from archivos.models import ArchivoRelacion, TipoArchivo
+        from archivos.services import FileService
+
+        ct = ContentType.objects.get_for_model(Producto)
+
+        # Idempotencia: si ya tiene imagen principal, no re-descargar.
+        if ArchivoRelacion.objects.filter(
+            content_type=ct, object_id=producto.id, rol="principal"
+        ).exists():
+            return
+
         try:
             with urlopen(imagen_url, timeout=20) as response:
                 content = response.read()
@@ -279,11 +293,24 @@ class Command(BaseCommand):
         extension = self._obtener_extension_desde_url(imagen_url)
         nombre_archivo = self._nombre_archivo_imagen(producto, extension)
 
-        producto.foto.save(
-            nombre_archivo,
-            ContentFile(content),
-            save=True
+        tipo, _ = TipoArchivo.objects.get_or_create(
+            nombre="Imagen de producto principal",
+            defaults={"carpeta": "imagen-producto-principal"},
         )
+
+        try:
+            FileService.upload(
+                file_obj=ContentFile(content, name=nombre_archivo),
+                tipo=tipo,
+                content_type=ct,
+                object_id=producto.id,
+                rol="principal",
+                perform_mime_validation=False,
+            )
+        except Exception as e:
+            self.stdout.write(
+                self.style.WARNING(f"No se pudo guardar imagen para {producto.nombre}: {e}")
+            )
 
     def _nombre_archivo_imagen(self, producto: Producto, extension: str) -> str:
         base = self._slug_basico(producto.nombre)[:120] or f"producto-{producto.id}"

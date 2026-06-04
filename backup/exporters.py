@@ -121,11 +121,10 @@ def export_clientes() -> BackupResult:
 
 
 def export_productos() -> BackupResult:
-    # Productos = Productos + ProductoImpuesto (through M2M) + fotos + planos.
-    productos = _dump_model(
-        Producto.objects.all(),
-        file_fields=('foto', 'plano'),
-    )
+    # Productos = Productos + ProductoImpuesto (through M2M).
+    # La multimedia (foto/video/plano) ya NO vive en Producto: está en el
+    # módulo archivos (Archivo + ArchivoRelacion). Su backup es aparte.
+    productos = _dump_model(Producto.objects.all())
     impuestos = _dump_model(ProductoImpuesto.objects.all())
     json_payload = _build_json_payload(
         'productos',
@@ -136,15 +135,6 @@ def export_productos() -> BackupResult:
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
         zf.writestr('data.json', json_payload)
-        # Recoger paths de foto y plano para incluir como archivos.
-        paths = []
-        for p in Producto.objects.exclude(foto=''):
-            if p.foto:
-                paths.append(p.foto.name)
-        for p in Producto.objects.exclude(plano=''):
-            if p.plano:
-                paths.append(p.plano.name)
-        _add_media_files(zf, paths)
 
     return BackupResult(f'backup_productos_{_ts()}.zip', 'application/zip', buf.getvalue())
 

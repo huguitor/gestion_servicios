@@ -2,6 +2,7 @@
 
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.contrib.contenttypes.fields import GenericRelation
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.text import slugify
@@ -64,14 +65,9 @@ class Producto(models.Model):
         blank=True
     )
 
-    foto = models.ImageField(upload_to="productos/fotos/", blank=True, null=True)
-    video = models.FileField(
-        upload_to="productos/videos/",
-        blank=True,
-        null=True,
-        help_text="Video demostrativo del producto. Puede incluir audio."
-    )
-    plano = models.FileField(upload_to="productos/planos/", blank=True, null=True)
+    # Multimedia (foto/video/plano) migrada al módulo archivos:
+    # ahora vive en Archivo + ArchivoRelacion (ver archivo_relaciones y
+    # url_archivo_rol más abajo). Sin FileFields propios.
 
     publicado_web = models.BooleanField(
         default=False,
@@ -110,6 +106,14 @@ class Producto(models.Model):
     creado = models.DateTimeField(auto_now_add=True)
     actualizado = models.DateTimeField(auto_now=True)
 
+    # Relación inversa a la biblioteca central de archivos.
+    # Es un campo virtual (no agrega columnas): habilita
+    # `producto.archivo_relaciones.all()` y prefetch eficiente.
+    archivo_relaciones = GenericRelation(
+        "archivos.ArchivoRelacion",
+        related_query_name="producto",
+    )
+
     class Meta:
         indexes = [
             models.Index(fields=["sku", "codigo_barras"]),
@@ -123,6 +127,40 @@ class Producto(models.Model):
     def stock_disponible(self):
         disponible = self.stock - self.stock_reservado
         return disponible if disponible > 0 else 0
+
+    def url_archivo_rol(self, rol):
+        """
+        URL (relativa) del archivo vinculado a este producto con el rol
+        dado, vía la biblioteca central (ArchivoRelacion). Devuelve None
+        si no hay. Itera sobre `.all()` para aprovechar el prefetch de
+        `archivo_relaciones__archivo` cuando está presente.
+        """
+        from archivos.services import FileStorage
+
+        candidatas = [
+            r for r in self.archivo_relaciones.all()
+            if r.rol == rol
+            and r.archivo_id
+            and r.archivo.activo
+            and r.archivo.archivo
+        ]
+        candidatas.sort(key=lambda r: (r.orden, -r.id))
+
+        if candidatas:
+            return FileStorage.url(candidatas[0].archivo.archivo.name)
+        return None
+
+    def multimedia_resumen(self):
+        """Flags de multimedia derivados de las relaciones de archivos."""
+        tiene_foto = self.url_archivo_rol("principal") is not None
+        tiene_video = self.url_archivo_rol("video") is not None
+        tiene_plano = self.url_archivo_rol("plano") is not None
+        return {
+            "tiene_foto": tiene_foto,
+            "tiene_video": tiene_video,
+            "tiene_plano": tiene_plano,
+            "total": sum([tiene_foto, tiene_video, tiene_plano]),
+        }
 
     def save(self, *args, **kwargs):
         if not self.sku:

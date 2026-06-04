@@ -20,7 +20,7 @@ from .serializers import (
 )
 
 class ProductoViewSet(viewsets.ModelViewSet):
-    queryset = Producto.objects.all()
+    queryset = Producto.objects.all().prefetch_related("archivo_relaciones__archivo")
     serializer_class = ProductoSerializer
     permission_classes = [IsAdminUser]
 
@@ -52,7 +52,7 @@ class CatalogoMercaderiaListView(generics.ListAPIView):
         return Producto.objects.filter(
             activo=True,
             publicado_web=True
-        ).order_by("orden_web", "nombre")
+        ).prefetch_related("archivo_relaciones__archivo").order_by("orden_web", "nombre")
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -68,7 +68,7 @@ class CatalogoMercaderiaClienteListView(generics.ListAPIView):
         return Producto.objects.filter(
             activo=True,
             publicado_web=True
-        ).order_by("orden_web", "nombre")
+        ).prefetch_related("archivo_relaciones__archivo").order_by("orden_web", "nombre")
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -84,7 +84,7 @@ class ProductoWebDetailView(generics.RetrieveAPIView):
         return Producto.objects.filter(
             activo=True,
             publicado_web=True
-        )
+        ).prefetch_related("archivo_relaciones__archivo")
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -100,7 +100,7 @@ class ProductoWebClienteDetailView(generics.RetrieveAPIView):
         return Producto.objects.filter(
             activo=True,
             publicado_web=True
-        )
+        ).prefetch_related("archivo_relaciones__archivo")
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

@@ -52,10 +52,9 @@ class ArchivoSerializer(serializers.ModelSerializer):
             "nombre_original",
             "descripcion",
 
-            "archivo",
+            # Sólo se expone la URL (vía FileStorage). El FileField crudo
+            # NO se publica: el frontend nunca debe ver el path interno.
             "archivo_url",
-
-            "thumbnail",
             "thumbnail_url",
 
             "tipo",
@@ -79,9 +78,6 @@ class ArchivoSerializer(serializers.ModelSerializer):
             # El archivo y su metadata SOLO se crean vía
             # FileService.upload(). Este serializer es de lectura
             # para esos campos; nunca persiste ni analiza archivos.
-            "archivo",
-            "thumbnail",
-
             "nombre_original",
 
             "mime_type",
@@ -177,6 +173,17 @@ class ArchivoRelacionSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
+    # Permite crear la relación enviando el nombre del modelo
+    # ("producto", "servicio", ...) en vez del id numérico de ContentType.
+    content_type_model = serializers.CharField(
+        write_only=True,
+        required=False,
+    )
+    content_type_nombre = serializers.CharField(
+        source="content_type.model",
+        read_only=True,
+    )
+
     class Meta:
         model = ArchivoRelacion
 
@@ -187,6 +194,8 @@ class ArchivoRelacionSerializer(serializers.ModelSerializer):
             "archivo_detalle",
 
             "content_type",
+            "content_type_model",
+            "content_type_nombre",
             "object_id",
 
             "rol",
@@ -199,6 +208,33 @@ class ArchivoRelacionSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "creado",
         ]
+
+    def to_internal_value(self, data):
+        """
+        Si llega `content_type_model` (nombre de modelo) y no `content_type`
+        (id numérico), resuelve el ContentType ANTES de la validación de
+        campos. Así el unique_together validator ve content_type presente.
+        """
+        model_name = data.get("content_type_model")
+
+        if model_name and not data.get("content_type"):
+            try:
+                ct = ContentType.objects.get(
+                    model=str(model_name).strip().lower()
+                )
+            except ContentType.DoesNotExist:
+                raise serializers.ValidationError(
+                    {"content_type_model": f"Modelo no existe: {model_name}"}
+                )
+            data = data.copy()
+            data["content_type"] = ct.id
+
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        # No es un campo del modelo: solo sirvió para resolver content_type.
+        attrs.pop("content_type_model", None)
+        return attrs
 
 class ArchivoUploadSimpleSerializer(serializers.Serializer):
     """

@@ -24,6 +24,18 @@ def build_file_url(obj, field_name, request=None):
     return None
 
 
+def build_rel_url(obj, rol, request=None):
+    """
+    URL del archivo vinculado al objeto con el rol dado, vía la biblioteca
+    central (ArchivoRelacion). El objeto debe exponer `url_archivo_rol()`.
+    Devuelve URL absoluta si hay request.
+    """
+    url = obj.url_archivo_rol(rol)
+    if url and request is not None:
+        return request.build_absolute_uri(url)
+    return url
+
+
 # -----------------------------
 # Serializer de impuestos
 # -----------------------------
@@ -97,9 +109,9 @@ class ProductoSerializer(serializers.ModelSerializer):
             'precio_venta', 'costo_compra',
             'stock', 'proveedor', 'categoria', 'marca',
             'productoimpuesto_set',
-            'foto', 'foto_url',
-            'video', 'video_url',
-            'plano', 'plano_url',
+            'foto_url',
+            'video_url',
+            'plano_url',
             'multimedia',
             'activo', 'creado', 'actualizado', 'display_name'
         ]
@@ -109,25 +121,16 @@ class ProductoSerializer(serializers.ModelSerializer):
         ]
 
     def get_foto_url(self, obj):
-        return build_file_url(obj, "foto", self.context.get("request"))
+        return build_rel_url(obj, "principal", self.context.get("request"))
 
     def get_video_url(self, obj):
-        return build_file_url(obj, "video", self.context.get("request"))
+        return build_rel_url(obj, "video", self.context.get("request"))
 
     def get_plano_url(self, obj):
-        return build_file_url(obj, "plano", self.context.get("request"))
+        return build_rel_url(obj, "plano", self.context.get("request"))
 
     def get_multimedia(self, obj):
-        tiene_foto = bool(obj.foto)
-        tiene_video = bool(obj.video)
-        tiene_plano = bool(obj.plano)
-
-        return {
-            "tiene_foto": tiene_foto,
-            "tiene_video": tiene_video,
-            "tiene_plano": tiene_plano,
-            "total": sum([tiene_foto, tiene_video, tiene_plano]),
-        }
+        return obj.multimedia_resumen()
 
     def to_internal_value(self, data):
         logger.debug(f"Datos recibidos en to_internal_value (Producto): {data}")
@@ -363,12 +366,7 @@ class ProductoWebPublicoSerializer(serializers.ModelSerializer):
         ]
 
     def get_foto_url(self, obj):
-        if obj.foto and hasattr(obj.foto, 'url'):
-            request = self.context.get('request')
-            if request is not None:
-                return request.build_absolute_uri(obj.foto.url)
-            return obj.foto.url
-        return None
+        return build_rel_url(obj, "principal", self.context.get("request"))
 
 class ProductoWebHomeSerializer(serializers.ModelSerializer):
     foto_url = serializers.SerializerMethodField()
@@ -386,20 +384,10 @@ class ProductoWebHomeSerializer(serializers.ModelSerializer):
         ]
 
     def get_foto_url(self, obj):
-        if obj.foto and hasattr(obj.foto, 'url'):
-            request = self.context.get('request')
-            if request is not None:
-                return request.build_absolute_uri(obj.foto.url)
-            return obj.foto.url
-        return None
+        return build_rel_url(obj, "principal", self.context.get("request"))
 
     def get_video_url(self, obj):
-        if obj.video and hasattr(obj.video, 'url'):
-            request = self.context.get('request')
-            if request is not None:
-                return request.build_absolute_uri(obj.video.url)
-            return obj.video.url
-        return None
+        return build_rel_url(obj, "video", self.context.get("request"))
 
 class ProductoWebClienteSerializer(serializers.ModelSerializer):
 
@@ -428,33 +416,11 @@ class ProductoWebClienteSerializer(serializers.ModelSerializer):
     def get_stock_disponible(self, obj):
         return obj.stock_disponible
 
-
     def get_foto_url(self, obj):
-
-        if obj.foto and hasattr(obj.foto, "url"):
-
-            request = self.context.get("request")
-
-            if request:
-                return request.build_absolute_uri(obj.foto.url)
-
-            return obj.foto.url
-
-        return None
-
+        return build_rel_url(obj, "principal", self.context.get("request"))
 
     def get_video_url(self, obj):
-
-        if obj.video and hasattr(obj.video, "url"):
-
-            request = self.context.get("request")
-
-            if request:
-                return request.build_absolute_uri(obj.video.url)
-
-            return obj.video.url
-
-        return None
+        return build_rel_url(obj, "video", self.context.get("request"))
 
 class ProductoWebDetalleSerializer(serializers.ModelSerializer):
     foto_url = serializers.SerializerMethodField()
@@ -477,20 +443,10 @@ class ProductoWebDetalleSerializer(serializers.ModelSerializer):
         ]
 
     def get_foto_url(self, obj):
-        if obj.foto and hasattr(obj.foto, 'url'):
-            request = self.context.get('request')
-            if request is not None:
-                return request.build_absolute_uri(obj.foto.url)
-            return obj.foto.url
-        return None
+        return build_rel_url(obj, "principal", self.context.get("request"))
 
     def get_video_url(self, obj):
-        if obj.video and hasattr(obj.video, 'url'):
-            request = self.context.get('request')
-            if request is not None:
-                return request.build_absolute_uri(obj.video.url)
-            return obj.video.url
-        return None
+        return build_rel_url(obj, "video", self.context.get("request"))
 
     def get_categoria_nombre(self, obj):
         return obj.categoria.nombre if obj.categoria else ""
@@ -533,32 +489,10 @@ class ProductoWebClienteDetalleSerializer(serializers.ModelSerializer):
 
 
     def get_foto_url(self, obj):
-
-        if obj.foto and hasattr(obj.foto, "url"):
-
-            request = self.context.get("request")
-
-            if request:
-                return request.build_absolute_uri(obj.foto.url)
-
-            return obj.foto.url
-
-        return None
-
+        return build_rel_url(obj, "principal", self.context.get("request"))
 
     def get_video_url(self, obj):
-
-        if obj.video and hasattr(obj.video, "url"):
-
-            request = self.context.get("request")
-
-            if request:
-                return request.build_absolute_uri(obj.video.url)
-
-            return obj.video.url
-
-        return None
-
+        return build_rel_url(obj, "video", self.context.get("request"))
 
     def get_categoria_nombre(self, obj):
         return obj.categoria.nombre if obj.categoria else ""
