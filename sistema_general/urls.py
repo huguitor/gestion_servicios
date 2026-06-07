@@ -49,6 +49,7 @@ def api_root(request):
             "productos": settings.MODULO_PRODUCTOS,
             "presupuestos": settings.MODULO_PRESUPUESTOS,
             "pedidos": settings.MODULO_PEDIDOS,
+            "pedidos_internos": settings.MODULO_PEDIDOS_INTERNOS,
             "remitos": settings.MODULO_REMITOS,
             "stock": settings.MODULO_STOCK,
             "archivos": True,
@@ -207,6 +208,22 @@ if modulo_activo("MODULO_PEDIDOS"):
         path(
             "api/pedidos/",
             include("pedidos.urls")
+        ),
+
+    ]
+
+
+# ==========================================================
+# PEDIDOS INTERNOS
+# ==========================================================
+
+if modulo_activo("MODULO_PEDIDOS_INTERNOS"):
+
+    urlpatterns += [
+
+        path(
+            "api/pedidos-internos/",
+            include("pedidos_internos.api.urls")
         ),
 
     ]

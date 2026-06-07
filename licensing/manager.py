@@ -45,6 +45,7 @@ class LicenseManager:
             "productos",
             "presupuestos",
             "pedidos",
+            "pedidos_internos",
             "remitos",
             "stock",
             "backup",

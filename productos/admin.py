@@ -1,6 +1,7 @@
-# gestion/backend/productos/admin.py
-
 from django.contrib import admin
+from django.contrib.contenttypes.models import ContentType
+
+from archivos.models import ArchivoRelacion
 
 from .models import (
     MovimientoStock,
@@ -10,13 +11,18 @@ from .models import (
     ServicioImpuesto,
 )
 
-
+# -------------------------
+# IMPUESTOS PRODUCTO
+# -------------------------
 class ProductoImpuestoInline(admin.TabularInline):
     model = ProductoImpuesto
     extra = 1
     autocomplete_fields = ("impuesto",)
 
 
+# -------------------------
+# MOVIMIENTO STOCK (SOLO LECTURA)
+# -------------------------
 class MovimientoStockInline(admin.TabularInline):
     model = MovimientoStock
     extra = 0
@@ -48,8 +54,29 @@ class MovimientoStockInline(admin.TabularInline):
         return False
 
 
+# -------------------------
+# MULTIMEDIA DEBUG (NUEVO)
+# -------------------------
+class ArchivoRelacionInline(admin.TabularInline):
+    model = ArchivoRelacion
+    extra = 0
+    fields = ("archivo", "rol", "orden", "observaciones")
+
+    readonly_fields = ()
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.filter(
+            content_type=ContentType.objects.get_for_model(Producto)
+        )
+
+
+# -------------------------
+# PRODUCTO ADMIN
+# -------------------------
 @admin.register(Producto)
 class ProductoAdmin(admin.ModelAdmin):
+
     list_display = (
         "sku",
         "nombre",
@@ -76,14 +103,35 @@ class ProductoAdmin(admin.ModelAdmin):
 
     readonly_fields = (
         "stock_disponible",
+        "archivos_debug",
     )
 
-    inlines = [
-        ProductoImpuestoInline,
-        MovimientoStockInline,
-    ]
+    # inlines = [
+    #    ProductoImpuestoInline,
+    #    MovimientoStockInline,
+    #    ArchivoRelacionInline,  # 👈 NUEVO
+    #]
+
+    # -------------------------
+    # DEBUG MULTIMEDIA
+    # -------------------------
+    def archivos_debug(self, obj):
+        relaciones = obj.archivo_relaciones.select_related("archivo").all()
+
+        if not relaciones:
+            return "Sin archivos"
+
+        return "\n".join(
+            f"[{r.rol}] {r.archivo.nombre} → {r.archivo.archivo.url}"
+            for r in relaciones
+        )
+
+    archivos_debug.short_description = "Multimedia (DEBUG)"
 
 
+# -------------------------
+# SERVICIOS
+# -------------------------
 class ServicioImpuestoInline(admin.TabularInline):
     model = ServicioImpuesto
     extra = 1
@@ -92,6 +140,7 @@ class ServicioImpuestoInline(admin.TabularInline):
 
 @admin.register(Servicio)
 class ServicioAdmin(admin.ModelAdmin):
+
     list_display = (
         "codigo_interno",
         "nombre",
@@ -116,8 +165,12 @@ class ServicioAdmin(admin.ModelAdmin):
     ]
 
 
+# -------------------------
+# MOVIMIENTO STOCK ADMIN
+# -------------------------
 @admin.register(MovimientoStock)
 class MovimientoStockAdmin(admin.ModelAdmin):
+
     list_display = (
         "creado",
         "producto",
@@ -157,10 +210,7 @@ class MovimientoStockAdmin(admin.ModelAdmin):
         "creado",
     )
 
-    ordering = (
-        "-creado",
-        "-id",
-    )
+    ordering = ("-creado", "-id")
 
     date_hierarchy = "creado"
 
