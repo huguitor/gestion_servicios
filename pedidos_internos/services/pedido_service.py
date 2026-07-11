@@ -1,144 +1,289 @@
-# gestion/backend/pedidos_internos/services/pedido_service.py
 """
-Lógica de negocio del flujo humano de pedidos internos (Sprint 1).
+Servicio de creación de pedidos internos.
 
-Mantiene los viewsets/admin delgados: toda creación o transición de
-estado pasa por acá y registra el movimiento correspondiente.
+Las operaciones del flujo posterior a la creación pertenecen a
+WorkflowService.
 """
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.utils import timezone
 
-from ..models import (
-    PedidoInterno,
-    PedidoInternoDetalle,
-    PedidoDestino,
-    Sector,
-)
+from ..models.movimiento import PedidoMovimiento
+from ..models.pedido import PedidoInterno
+from ..models.pedido_destino import PedidoDestino
+from ..models.pedido_detalle import PedidoInternoDetalle
+from ..models.sector import Sector
+from ..models.usuario_sector import UsuarioSector
 
 
 @transaction.atomic
 def crear_pedido(
+    *,
     solicitante,
     sector_origen,
     detalles,
     destinos,
-    prioridad="normal",
+    prioridad=PedidoInterno.Prioridad.NORMAL,
     observaciones="",
     fecha=None,
 ):
     """
-    Crea un pedido interno completo.
+    Crea un pedido interno completo dentro de una transacción.
 
-    - detalles: iterable de dicts con claves
-      {producto, servicio, descripcion, cantidad, observacion}.
-    - destinos: iterable de Sector (o ids) hacia los que se dirige.
+    Si falla la cabecera, un detalle, un destino o un movimiento,
+    se revierte la operación completa.
     """
-    pedido = PedidoInterno(
+
+    _validar_creacion(
         solicitante=solicitante,
         sector_origen=sector_origen,
+        detalles=detalles,
+        destinos=destinos,
+    )
+
+    sector_origen_obj = _obtener_sector_activo(sector_origen)
+
+    pedido = PedidoInterno(
+        solicitante=solicitante,
+        sector_origen=sector_origen_obj,
         prioridad=prioridad,
         observaciones=observaciones or "",
     )
-    if fecha:
+
+    if fecha is not None:
         pedido.fecha = fecha
+
     pedido.save()
 
-    for item in detalles:
-        PedidoInternoDetalle.objects.create(
-            pedido=pedido,
-            producto=item.get("producto"),
-            servicio=item.get("servicio"),
-            descripcion=item.get("descripcion", "") or "",
-            cantidad=item.get("cantidad", 1) or 1,
-            observacion=item.get("observacion", "") or "",
-        )
+    _crear_detalles(
+        pedido=pedido,
+        detalles=detalles,
+    )
 
-    for sector in destinos:
-        sector_obj = sector if isinstance(sector, Sector) else Sector.objects.get(pk=sector)
-        PedidoDestino.objects.get_or_create(
-            pedido=pedido,
-            sector_destino=sector_obj,
-        )
+    destinos_creados = _crear_destinos(
+        pedido=pedido,
+        destinos=destinos,
+    )
 
     pedido.registrar_movimiento(
         usuario=solicitante,
-        accion="creado",
-        detalle=f"Pedido creado desde {sector_origen.codigo}.",
+        accion=PedidoMovimiento.Accion.CREADO,
+        detalle=(
+            f"Pedido creado desde el sector "
+            f"{sector_origen_obj.codigo}."
+        ),
+        estado_nuevo=PedidoInterno.Estado.PENDIENTE,
     )
 
-    return pedido
-
-
-@transaction.atomic
-def marcar_leido(destino, usuario):
-    """Marca como leído un PedidoDestino y registra el movimiento."""
-    if not destino.leido:
-        destino.leido = True
-        destino.fecha_leido = timezone.now()
-        if destino.responsable_id is None and usuario is not None:
-            destino.responsable = usuario
-        destino.save(update_fields=["leido", "fecha_leido", "responsable"])
-
-        destino.pedido.registrar_movimiento(
-            usuario=usuario,
-            accion="leido",
-            detalle=f"Leído por sector {destino.sector_destino.codigo}.",
+    # Cada destino necesita su propio instante de envío.
+    # Este movimiento será el inicio del SLA enviado → leído.
+    for destino in destinos_creados:
+        pedido.registrar_movimiento(
+            destino=destino,
+            usuario=solicitante,
+            accion=PedidoMovimiento.Accion.ENVIADO,
+            detalle=(
+                f"Pedido enviado al sector "
+                f"{destino.sector_destino.codigo}."
+            ),
+            estado_nuevo=PedidoDestino.Estado.PENDIENTE,
+            metadata={
+                "sector_destino_id": destino.sector_destino_id,
+            },
         )
 
-    return destino
-
-
-@transaction.atomic
-def cambiar_estado(pedido, nuevo_estado, usuario, detalle=""):
-    """Cambia el estado de la cabecera y deja constancia en el historial."""
-    estados_validos = {c[0] for c in PedidoInterno.ESTADO_CHOICES}
-    if nuevo_estado not in estados_validos:
-        raise ValidationError(f"Estado inválido: {nuevo_estado}")
-
-    pedido.estado = nuevo_estado
-    pedido.save(update_fields=["estado", "actualizado"])
-
-    accion = nuevo_estado if nuevo_estado in {a[0] for a in _acciones()} else "comentario"
-    pedido.registrar_movimiento(
-        usuario=usuario,
-        accion=accion,
-        detalle=detalle or f"Estado cambiado a {nuevo_estado}.",
-    )
-
     return pedido
 
 
-@transaction.atomic
-def derivar(pedido, sector_destino, usuario, motivo=""):
+def _validar_creacion(
+    *,
+    solicitante,
+    sector_origen,
+    detalles,
+    destinos,
+):
+    if solicitante is None or not getattr(solicitante, "is_authenticated", False):
+        raise ValidationError(
+            "Se requiere un usuario autenticado para crear el pedido."
+        )
+
+    if sector_origen is None:
+        raise ValidationError(
+            "Debe indicar un sector de origen."
+        )
+
+    if not detalles:
+        raise ValidationError(
+            "El pedido debe tener al menos un detalle."
+        )
+
+    if not destinos:
+        raise ValidationError(
+            "El pedido debe tener al menos un destino."
+        )
+
+    sector_origen_obj = _obtener_sector_activo(sector_origen)
+
+    pertenece = UsuarioSector.objects.filter(
+        usuario_id=solicitante.pk,
+        sector_id=sector_origen_obj.pk,
+        activo=True,
+    ).exists()
+
+    if not pertenece:
+        raise ValidationError({
+            "sector_origen": (
+                "El usuario no pertenece activamente "
+                "al sector de origen."
+            )
+        })
+
+
+def _crear_detalles(*, pedido, detalles):
+    for posicion, item in enumerate(detalles, start=1):
+        if not isinstance(item, dict):
+            raise ValidationError(
+                f"El detalle {posicion} tiene un formato inválido."
+            )
+
+        tipo = item.get("tipo")
+
+        if not tipo:
+            raise ValidationError(
+                f"El detalle {posicion} no tiene un tipo válido."
+            )
+
+        cantidad = item.get("cantidad", 1)
+
+        if cantidad in (None, ""):
+            cantidad = 1
+
+        detalle = PedidoInternoDetalle(
+            pedido=pedido,
+            tipo=tipo,
+            producto=item.get("producto"),
+            servicio=item.get("servicio"),
+            descripcion=item.get("descripcion", "") or "",
+            cantidad=cantidad,
+            observacion=item.get("observacion", "") or "",
+        )
+
+        # Ejecuta las validaciones propias del modelo antes de insertar.
+        detalle.full_clean()
+        detalle.save()
+
+
+def _crear_destinos(*, pedido, destinos):
+    sectores = _normalizar_destinos(destinos)
+
+    if pedido.sector_origen_id in sectores:
+        raise ValidationError({
+            "destinos": (
+                "El sector de origen no puede agregarse como "
+                "destino inicial del mismo pedido."
+            )
+        })
+
+    sectores_obj = list(
+        Sector.objects.filter(
+            pk__in=sectores,
+            activo=True,
+        )
+    )
+
+    encontrados = {sector.pk for sector in sectores_obj}
+    faltantes = set(sectores) - encontrados
+
+    if faltantes:
+        raise ValidationError({
+            "destinos": (
+                "Uno o más sectores destino no existen "
+                "o se encuentran inactivos."
+            )
+        })
+
+    destinos_creados = []
+
+    for sector in sectores_obj:
+        destino = PedidoDestino.objects.create(
+            pedido=pedido,
+            sector_destino=sector,
+        )
+        destinos_creados.append(destino)
+
+    return destinos_creados
+
+
+def _normalizar_destinos(destinos):
     """
-    Deriva un pedido hacia un nuevo sector: crea su PedidoDestino,
-    pone el pedido en 'derivado' y registra el movimiento.
+    Convierte instancias o IDs de Sector en una lista única de IDs.
+
+    Evita usar set(destinos), porque podría recibir una combinación
+    de enteros e instancias y ocultar duplicados equivalentes.
     """
-    sector_obj = (
-        sector_destino
-        if isinstance(sector_destino, Sector)
-        else Sector.objects.get(pk=sector_destino)
-    )
+    sector_ids = []
+    vistos = set()
 
-    PedidoDestino.objects.get_or_create(
-        pedido=pedido,
-        sector_destino=sector_obj,
-    )
+    for posicion, sector in enumerate(destinos, start=1):
+        sector_id = (
+            sector.pk
+            if isinstance(sector, Sector)
+            else sector
+        )
 
-    pedido.estado = "derivado"
-    pedido.save(update_fields=["estado", "actualizado"])
+        if sector_id is None:
+            raise ValidationError(
+                f"El destino {posicion} no tiene un ID válido."
+            )
 
-    pedido.registrar_movimiento(
-        usuario=usuario,
-        accion="derivado",
-        detalle=motivo or f"Derivado a {sector_obj.codigo}.",
-    )
+        try:
+            sector_id = int(sector_id)
+        except (TypeError, ValueError):
+            raise ValidationError(
+                f"El destino {posicion} tiene un ID inválido."
+            )
 
-    return pedido
+        if sector_id in vistos:
+            raise ValidationError({
+                "destinos": (
+                    f"El sector destino con ID {sector_id} "
+                    "está repetido."
+                )
+            })
+
+        vistos.add(sector_id)
+        sector_ids.append(sector_id)
+
+    return sector_ids
 
 
-def _acciones():
-    from ..models import PedidoMovimiento
-    return PedidoMovimiento.ACCION_CHOICES
+def _obtener_sector_activo(sector):
+    if isinstance(sector, Sector):
+        if not sector.pk:
+            raise ValidationError(
+                "El sector todavía no fue guardado."
+            )
+
+        if not sector.activo:
+            raise ValidationError({
+                "sector": "El sector se encuentra inactivo."
+            })
+
+        return sector
+
+    try:
+        sector_id = int(sector)
+    except (TypeError, ValueError):
+        raise ValidationError(
+            "El sector indicado no es válido."
+        )
+
+    try:
+        return Sector.objects.get(
+            pk=sector_id,
+            activo=True,
+        )
+    except Sector.DoesNotExist as exc:
+        raise ValidationError(
+            "El sector no existe o se encuentra inactivo."
+        ) from exc

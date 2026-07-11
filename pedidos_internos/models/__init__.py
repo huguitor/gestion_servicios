@@ -6,6 +6,7 @@ from .pedido import PedidoInterno
 from .pedido_detalle import PedidoInternoDetalle
 from .pedido_destino import PedidoDestino
 from .movimiento import PedidoMovimiento
+from .regla_sla import PedidoReglaSLA
 
 __all__ = [
     "Sector",
@@ -14,4 +15,5 @@ __all__ = [
     "PedidoInternoDetalle",
     "PedidoDestino",
     "PedidoMovimiento",
+    "PedidoReglaSLA",
 ]
