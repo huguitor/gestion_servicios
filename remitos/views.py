@@ -272,7 +272,11 @@ class RemitoViewSet(viewsets.ModelViewSet):
         
         if request.method == 'GET':
             adjuntos = remito.adjuntos.all()
-            serializer = RemitoAdjuntoSerializer(adjuntos, many=True)
+            serializer = RemitoAdjuntoSerializer(
+                adjuntos,
+                many=True,
+                context={'request': request},
+            )
             return Response(serializer.data)
         
         elif request.method == 'POST':

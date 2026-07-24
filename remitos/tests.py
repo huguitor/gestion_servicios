@@ -72,3 +72,13 @@ class RemitoAdjuntoUploadTests(APITestCase):
         self.assertEqual(adjunto.remito, self.remito)
         self.assertEqual(adjunto.tipo, 'entrega')
         self.assertEqual(adjunto.descripcion, 'Comprobante firmado')
+
+        listado_response = self.client.get(
+            f'/api/remitos/{self.remito.pk}/adjuntos/',
+        )
+
+        self.assertEqual(listado_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            listado_response.data[0]['url_descarga'],
+            f'http://testserver{adjunto.archivo.url}',
+        )
