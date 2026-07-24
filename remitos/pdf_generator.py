@@ -11,6 +11,8 @@
 import io
 import os
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from xml.sax.saxutils import escape
 
 from django.conf import settings
 from reportlab.lib import colors
@@ -163,6 +165,32 @@ def _fmt_fecha(value):
         return str(value)
 
 
+def _format_cantidad_unidad(cantidad, unidad):
+    """Formatea una cantidad Decimal y adapta la unidad al singular o plural."""
+    try:
+        cantidad_decimal = Decimal(str(cantidad))
+    except (InvalidOperation, TypeError, ValueError):
+        return f"{cantidad} {unidad or ''}".strip()
+
+    cantidad_texto = format(cantidad_decimal, 'f')
+    if '.' in cantidad_texto:
+        cantidad_texto = cantidad_texto.rstrip('0').rstrip('.')
+    if cantidad_decimal == 0:
+        cantidad_texto = '0'
+
+    unidad_texto = str(unidad or '').strip()
+    if not unidad_texto or cantidad_decimal == Decimal('1'):
+        return f"{cantidad_texto} {unidad_texto}".strip()
+
+    abreviaturas_invariables = {'KG', 'GR', 'LT', 'ML', 'M', 'CM', 'M2', 'M3'}
+    es_abreviatura = unidad_texto.upper() in abreviaturas_invariables
+    if not es_abreviatura:
+        sufijo = 'S' if unidad_texto[-1].lower() in 'aeiouáéíóú' else 'ES'
+        unidad_texto += sufijo if unidad_texto.isupper() else sufijo.lower()
+
+    return f"{cantidad_texto} {unidad_texto}"
+
+
 def _build_remito_info_section(styles, remito):
     """Número de remito + fechas + origen/destino + cliente."""
     elements = [Spacer(1, 10)]
@@ -283,22 +311,37 @@ def _build_items_section(styles, items):
     """Tabla de entrega: #, descripción, cantidad (con unidad), observaciones."""
     elements = [Paragraph("DETALLE DE LA ENTREGA", styles['Heading2']), Spacer(1, 5)]
 
+    cell_style = ParagraphStyle(
+        name='RemitoItemCell',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=9,
+        leading=11,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+
+    def cell_paragraph(value):
+        text = escape(str(value or '')).replace('\n', '<br/>')
+        return Paragraph(text, cell_style)
+
     data = [['#', 'Descripción', 'Cantidad', 'Observaciones']]
     for i, item in enumerate(items, 1):
-        try:
-            cantidad_str = f"{float(item.cantidad):.2f} {item.unidad_medida or ''}".strip()
-        except (TypeError, ValueError):
-            cantidad_str = f"{item.cantidad} {item.unidad_medida or ''}".strip()
+        cantidad_str = _format_cantidad_unidad(
+            item.cantidad,
+            item.unidad_medida,
+        )
+        descripcion = f"{(item.codigo + ' — ') if item.codigo else ''}{item.descripcion or ''}"
         data.append(
             [
                 str(i),
-                f"{(item.codigo + ' — ') if item.codigo else ''}{item.descripcion or ''}",
+                cell_paragraph(descripcion),
                 cantidad_str,
-                item.observaciones or '',
+                cell_paragraph(item.observaciones),
             ]
         )
 
-    table = Table(data, colWidths=[30, 300, 80, 90])
+    table = Table(data, colWidths=[30, 325, 80, 65])
     table.setStyle(
         TableStyle(
             [
@@ -312,6 +355,8 @@ def _build_items_section(styles, items):
                 ('ALIGN', (1, 1), (1, -1), 'LEFT'),
                 ('ALIGN', (2, 1), (2, -1), 'RIGHT'),
                 ('ALIGN', (3, 1), (3, -1), 'LEFT'),
+                ('LEFTPADDING', (3, 0), (3, -1), 3),
+                ('RIGHTPADDING', (3, 0), (3, -1), 3),
                 ('BOX', (0, 0), (-1, -1), 1, colors.black),
                 ('INNERGRID', (0, 0), (-1, -1), 0.5, colors.grey),
                 ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')]),
