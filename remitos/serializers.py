@@ -377,6 +377,7 @@ class RemitoAdjuntoSerializer(serializers.ModelSerializer):
         ]
 
         read_only_fields = [
+            'remito',
             'tamaño',
             'extension',
             'nombre_original',
