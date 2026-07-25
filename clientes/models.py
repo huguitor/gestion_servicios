@@ -1,6 +1,6 @@
 # gestion/clientes/models.py
 from django.db import models
-from django.core.validators import RegexValidator
+from django.core.validators import MinValueValidator, RegexValidator
 
 class Cliente(models.Model):
     TIPO_CHOICES = [
@@ -34,6 +34,11 @@ class Cliente(models.Model):
     ciudad = models.CharField(max_length=100, blank=True, null=True)
     provincia = models.CharField(max_length=100, blank=True, null=True)
     pais = models.CharField(max_length=100, default="Argentina")
+    plazo_cobro_dias = models.PositiveIntegerField(
+        default=0,
+        validators=[MinValueValidator(0)],
+        help_text="Plazo predeterminado sugerido para nuevas facturas de cobranza.",
+    )
 
     activo = models.BooleanField(default=True)
     creado = models.DateTimeField(auto_now_add=True)
