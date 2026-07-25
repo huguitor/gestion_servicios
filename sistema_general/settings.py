@@ -199,6 +199,7 @@ INSTALLED_APPS = [
     'comprobantes',
     'pedidos',
     'pedidos_internos',
+    'cobranzas',
     'archivos',
     'web_publica',
     'backup',  # Tanda 7: backup/restauración granular

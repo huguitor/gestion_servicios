@@ -126,6 +126,11 @@ urlpatterns += [
         include("archivos.urls")
     ),
 
+    path(
+        "api/cobranzas/",
+        include("cobranzas.urls")
+    ),
+
 ]
 
 
