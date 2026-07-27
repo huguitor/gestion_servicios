@@ -121,6 +121,7 @@ MODULO_PRODUCTOS = env_bool("MODULO_PRODUCTOS", True)
 MODULO_PRESUPUESTOS = env_bool("MODULO_PRESUPUESTOS", True)
 MODULO_PEDIDOS = env_bool("MODULO_PEDIDOS", True)
 MODULO_PEDIDOS_INTERNOS = env_bool("MODULO_PEDIDOS_INTERNOS", True)
+MODULO_COBRANZAS = env_bool("MODULO_COBRANZAS", True)
 MODULO_REMITOS = env_bool("MODULO_REMITOS", True)
 MODULO_STOCK = env_bool("MODULO_STOCK", True)
 
@@ -199,6 +200,7 @@ INSTALLED_APPS = [
     'comprobantes',
     'pedidos',
     'pedidos_internos',
+    'personal',
     'cobranzas',
     'archivos',
     'web_publica',

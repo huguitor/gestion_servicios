@@ -1,7 +1,8 @@
 # gestion/backend/pedidos_internos/api/views.py
 
 from django.core.exceptions import ValidationError
-from django.db.models import Q
+from django.db.models import Count, Prefetch, Q
+from django.utils import timezone
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -11,15 +12,20 @@ from rest_framework.exceptions import (
 )
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from licensing.manager import license_manager
 
 from ..models import (
     PedidoDestino,
     PedidoInterno,
+    PedidoMovimiento,
+    PedidoReglaSLA,
     Sector,
+    UsuarioSector,
 )
 from ..services import workflow_service
+from ..services.sla_service import obtener_sla_actual
 from .serializers import (
     PedidoDestinoSerializer,
     PedidoInternoCreateSerializer,
@@ -96,6 +102,173 @@ class PedidosInternosLicenseMixin:
             )
 
         return super().initial(request, *args, **kwargs)
+
+
+class MisSectoresView(PedidosInternosLicenseMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        membresias = (
+            UsuarioSector.objects
+            .filter(
+                usuario=request.user,
+                activo=True,
+                sector__activo=True,
+            )
+            .select_related("sector")
+            .order_by("-principal", "sector__nombre", "sector__id")
+        )
+
+        return Response([
+            {
+                "id": membresia.sector_id,
+                "codigo": membresia.sector.codigo,
+                "nombre": membresia.sector.nombre,
+                "descripcion": membresia.sector.descripcion,
+                "principal": membresia.principal,
+            }
+            for membresia in membresias
+        ])
+
+
+class DashboardPedidosInternosView(
+    PedidosInternosLicenseMixin,
+    APIView,
+):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        sector_id = request.query_params.get("sector")
+
+        if not sector_id:
+            raise DRFValidationError({
+                "sector": "Debe indicar el sector operativo."
+            })
+
+        try:
+            membresia = (
+                UsuarioSector.objects
+                .select_related("sector")
+                .get(
+                    usuario=request.user,
+                    sector_id=sector_id,
+                    activo=True,
+                    sector__activo=True,
+                )
+            )
+        except (UsuarioSector.DoesNotExist, ValueError, TypeError):
+            raise PermissionDenied(
+                "No pertenece activamente al sector seleccionado."
+            )
+
+        sector = membresia.sector
+        destinos = list(
+            PedidoDestino.objects
+            .filter(sector_destino=sector)
+            .select_related("sector_destino")
+            .prefetch_related(Prefetch(
+                "movimientos",
+                queryset=(
+                    PedidoMovimiento.objects
+                    .filter(accion=PedidoMovimiento.Accion.ENVIADO)
+                    .order_by("fecha", "id")
+                ),
+                to_attr="_movimientos_envio_sla",
+            ))
+        )
+        reglas_sla = {
+            (regla.hito_origen, regla.hito_destino): regla
+            for regla in (
+                PedidoReglaSLA.objects
+                .filter(sector=sector, activo=True)
+                .order_by("-actualizado", "-id")
+            )
+        }
+        hoy = timezone.localdate()
+
+        estados = {
+            estado: 0
+            for estado, _etiqueta in PedidoDestino.Estado.choices
+        }
+        no_leidos = 0
+        resueltos_hoy = 0
+        sla = {
+            "vencidos": 0,
+            "proximos_a_vencer": 0,
+            "en_tiempo": 0,
+        }
+
+        for destino in destinos:
+            estados[destino.estado] += 1
+            no_leidos += int(not destino.leido)
+
+            if (
+                destino.estado == PedidoDestino.Estado.RESUELTO
+                and timezone.localdate(destino.fecha_estado) == hoy
+            ):
+                resueltos_hoy += 1
+
+            estado_sla = obtener_sla_actual(
+                destino=destino,
+                reglas_por_transicion=reglas_sla,
+            ).get("estado")
+            if estado_sla == "vencido":
+                sla["vencidos"] += 1
+            elif estado_sla == "proximo_vencer":
+                sla["proximos_a_vencer"] += 1
+            elif estado_sla == "en_tiempo":
+                sla["en_tiempo"] += 1
+
+        mis_pedidos = (
+            PedidoInterno.objects
+            .filter(solicitante=request.user)
+            .values("estado")
+            .annotate(total=Count("id"))
+        )
+        por_estado = {
+            fila["estado"]: fila["total"]
+            for fila in mis_pedidos
+        }
+        total_mis_pedidos = sum(por_estado.values())
+
+        return Response({
+            "sector": {
+                "id": sector.id,
+                "codigo": sector.codigo,
+                "nombre": sector.nombre,
+            },
+            "bandeja": {
+                "total": len(destinos),
+                "no_leidos": no_leidos,
+                "pendientes": estados[PedidoDestino.Estado.PENDIENTE],
+                "recibidos": estados[PedidoDestino.Estado.RECIBIDO],
+                "en_proceso": estados[PedidoDestino.Estado.EN_PROCESO],
+                "resueltos_hoy": resueltos_hoy,
+                "rechazados": estados[PedidoDestino.Estado.RECHAZADO],
+            },
+            "sla": sla,
+            "mis_pedidos": {
+                "total": total_mis_pedidos,
+                "pendientes": por_estado.get(
+                    PedidoInterno.Estado.PENDIENTE, 0
+                ),
+                "en_gestion": sum(
+                    por_estado.get(estado, 0)
+                    for estado in {
+                        PedidoInterno.Estado.EN_PROCESO,
+                        PedidoInterno.Estado.RECIBIDO,
+                        PedidoInterno.Estado.DERIVADO,
+                        PedidoInterno.Estado.ENVIADO,
+                    }
+                ),
+                "resueltos": por_estado.get(
+                    PedidoInterno.Estado.RESUELTO, 0
+                ),
+                "rechazados": por_estado.get(
+                    PedidoInterno.Estado.RECHAZADO, 0
+                ),
+            },
+        })
 
 
 # ==========================================================

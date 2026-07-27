@@ -24,7 +24,12 @@ class RemitoViewSet(viewsets.ModelViewSet):
         # Filtrar por cliente (si se especifica)
         cliente = self.request.query_params.get('cliente', None)
         if cliente:
-            queryset = queryset.filter(cliente__nombre__icontains=cliente)  # ← CORREGIDO: usar cliente__nombre
+            cliente = cliente.strip()
+            if cliente.isdigit():
+                queryset = queryset.filter(cliente_id=int(cliente))
+            else:
+                # Compatibilidad con consumidores existentes que buscan por nombre.
+                queryset = queryset.filter(cliente__nombre__icontains=cliente)
         
         # Filtrar por estado
         estado = self.request.query_params.get('estado', None)
@@ -113,7 +118,7 @@ class RemitoViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        remitos = self.get_queryset().filter(cliente__nombre__icontains=cliente)  # ← CORREGIDO
+        remitos = self.get_queryset()
         serializer = self.get_serializer(remitos, many=True)
         
         return Response({

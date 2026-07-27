@@ -127,6 +127,11 @@ urlpatterns += [
     ),
 
     path(
+        "api/personal/",
+        include("personal.api.urls")
+    ),
+
+    path(
         "api/cobranzas/",
         include("cobranzas.urls")
     ),

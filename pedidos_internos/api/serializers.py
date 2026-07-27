@@ -213,6 +213,22 @@ class PedidoMovimientoSerializer(serializers.ModelSerializer):
 # ==========================================================
 
 class PedidoDestinoSerializer(serializers.ModelSerializer):
+    pedido_fecha = serializers.DateField(
+        source="pedido.fecha",
+        read_only=True,
+    )
+    pedido_solicitante = UsuarioResumenSerializer(
+        source="pedido.solicitante",
+        read_only=True,
+    )
+    pedido_sector_origen_codigo = serializers.CharField(
+        source="pedido.sector_origen.codigo",
+        read_only=True,
+    )
+    pedido_sector_origen_nombre = serializers.CharField(
+        source="pedido.sector_origen.nombre",
+        read_only=True,
+    )
     sector_codigo = serializers.CharField(
         source="sector_destino.codigo",
         read_only=True,
@@ -263,6 +279,10 @@ class PedidoDestinoSerializer(serializers.ModelSerializer):
             "id",
             "pedido",
             "pedido_numero",
+            "pedido_fecha",
+            "pedido_solicitante",
+            "pedido_sector_origen_codigo",
+            "pedido_sector_origen_nombre",
             "pedido_prioridad",
             "pedido_estado_global",
             "sector_destino",
@@ -385,6 +405,8 @@ class PedidoInternoListSerializer(serializers.ModelSerializer):
     cantidad_destinos = serializers.SerializerMethodField()
     cantidad_pendientes = serializers.SerializerMethodField()
     cantidad_resueltos = serializers.SerializerMethodField()
+    cantidad_detalles = serializers.SerializerMethodField()
+    destinos_resumen = serializers.SerializerMethodField()
 
     class Meta:
         model = PedidoInterno
@@ -401,9 +423,12 @@ class PedidoInternoListSerializer(serializers.ModelSerializer):
             "estado_display",
             "prioridad",
             "prioridad_display",
+            "observaciones",
             "cantidad_destinos",
             "cantidad_pendientes",
             "cantidad_resueltos",
+            "cantidad_detalles",
+            "destinos_resumen",
             "creado",
             "actualizado",
         ]
@@ -430,6 +455,30 @@ class PedidoInternoListSerializer(serializers.ModelSerializer):
             estado == PedidoDestino.Estado.RESUELTO
             for estado in estados
         )
+
+    def get_cantidad_detalles(self, obj):
+        cache = getattr(obj, "_prefetched_objects_cache", {})
+        detalles = cache.get("detalles")
+        return len(detalles) if detalles is not None else obj.detalles.count()
+
+    def get_destinos_resumen(self, obj):
+        cache = getattr(obj, "_prefetched_objects_cache", {})
+        destinos = cache.get("destinos")
+
+        if destinos is None:
+            destinos = obj.destinos.select_related("sector_destino").all()
+
+        return [
+            {
+                "id": destino.id,
+                "sector_id": destino.sector_destino_id,
+                "sector_codigo": destino.sector_destino.codigo,
+                "sector_nombre": destino.sector_destino.nombre,
+                "estado": destino.estado,
+                "estado_display": destino.get_estado_display(),
+            }
+            for destino in destinos
+        ]
 
     def _obtener_estados_destino(self, obj):
         cache = getattr(

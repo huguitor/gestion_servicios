@@ -949,7 +949,6 @@ def _bloquear_destino(destino):
             .select_for_update()
             .select_related(
                 "sector_destino",
-                "responsable",
             )
             .get(pk=destino_id)
         )

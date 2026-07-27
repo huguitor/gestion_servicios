@@ -47,6 +47,7 @@ class LicenseManager:
             "pedidos",
             "pedidos_internos",
             "remitos",
+            "cobranzas",
             "stock",
             "backup",
             "web_publica",

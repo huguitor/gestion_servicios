@@ -75,7 +75,12 @@ SLA_FINALIZADO = "finalizado"
 # SLA ACTUAL DE UN DESTINO
 # ==========================================================
 
-def obtener_sla_actual(*, destino, ahora=None):
+def obtener_sla_actual(
+    *,
+    destino,
+    ahora=None,
+    reglas_por_transicion=None,
+):
     """
     Devuelve el estado del SLA actualmente activo para un destino.
 
@@ -129,11 +134,16 @@ def obtener_sla_actual(*, destino, ahora=None):
     hito_destino = etapa["hito_destino"]
     fecha_inicio = etapa["fecha_inicio"]
 
-    regla = obtener_regla(
-        sector=destino.sector_destino,
-        hito_origen=hito_origen,
-        hito_destino=hito_destino,
-    )
+    if reglas_por_transicion is None:
+        regla = obtener_regla(
+            sector=destino.sector_destino,
+            hito_origen=hito_origen,
+            hito_destino=hito_destino,
+        )
+    else:
+        regla = reglas_por_transicion.get(
+            (hito_origen, hito_destino)
+        )
 
     if regla is None:
         return {
@@ -566,15 +576,28 @@ def _obtener_fecha_envio(destino):
     Ese movimiento es el inicio del SLA enviado -> leído.
     """
 
-    movimiento = (
-        PedidoMovimiento.objects
-        .filter(
-            destino=destino,
-            accion=PedidoMovimiento.Accion.ENVIADO,
-        )
-        .order_by("fecha", "id")
-        .first()
+    movimientos_precargados = getattr(
+        destino,
+        "_movimientos_envio_sla",
+        None,
     )
+
+    if movimientos_precargados is not None:
+        movimiento = min(
+            movimientos_precargados,
+            key=lambda item: (item.fecha, item.id),
+            default=None,
+        )
+    else:
+        movimiento = (
+            PedidoMovimiento.objects
+            .filter(
+                destino=destino,
+                accion=PedidoMovimiento.Accion.ENVIADO,
+            )
+            .order_by("fecha", "id")
+            .first()
+        )
 
     if movimiento:
         return movimiento.fecha
