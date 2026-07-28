@@ -35,8 +35,9 @@ class LegacyPlannerTests(SimpleTestCase):
             )
             plan = json.loads((output_dir / "plan.json").read_text())
             self.assertFalse(plan["writes_business_data"])
-            self.assertEqual(plan["mode"], "infrastructure_only")
+            self.assertEqual(plan["mode"], "validation")
             self.assertEqual(len(plan["stages"]), 19)
+            self.assertTrue(plan["execution_pipeline"])
             self.assertTrue(plan["sequence_plan"])
 
     def test_models_report_contains_defaults_and_source_counts(self):
