@@ -35,6 +35,7 @@ class MasterImportReport:
     max_pk: int | None = None
     warnings: list[str] = field(default_factory=list)
     defaults_applied: dict = field(default_factory=dict)
+    preserved_references: list[dict] = field(default_factory=list)
     status: str = "pending"
 
     def as_dict(self) -> dict:
@@ -53,6 +54,10 @@ class MasterModelImporter(BaseImporter):
     decimal_fields: frozenset[str] = frozenset()
     timestamp_fields: tuple[str, ...] = ("creado", "actualizado")
     unique_fields: tuple[str, ...] = ()
+    unique_together: tuple[tuple[str, ...], ...] = ()
+    source_only_columns: tuple[str, ...] = ()
+    defaults: dict = {}
+    foreign_keys: dict = {}
 
     def __init__(self, database_path, *, batch_size=500, using="default"):
         if batch_size < 1:
@@ -95,7 +100,9 @@ class MasterModelImporter(BaseImporter):
                     f'PRAGMA table_info("{self.table_name}")'
                 ).fetchall()
                 self.source_columns = frozenset(row["name"] for row in table_info)
-                missing = sorted(set(self.columns) - self.source_columns)
+                required_source = set(self.columns) | set(self.source_only_columns)
+                required_source -= set(self.defaults)
+                missing = sorted(required_source - self.source_columns)
                 if missing:
                     raise MasterImportError(
                         f"Faltan columnas en {self.table_name}: "
@@ -112,28 +119,41 @@ class MasterModelImporter(BaseImporter):
             raise MasterImportError(
                 f"No se pudo inspeccionar {self.table_name}: {exc}"
             ) from exc
-        if source_fks:
+        source_fk_columns = {row["from"] for row in source_fks}
+        expected_fk_columns = set(self.foreign_keys)
+        if source_fk_columns != expected_fk_columns:
             raise MasterImportError(
-                f"{self.table_name} contiene FK no contempladas."
+                f"{self.table_name} contiene FK no contempladas o faltantes: "
+                f"esperadas={sorted(expected_fk_columns)}, "
+                f"encontradas={sorted(source_fk_columns)}."
             )
-        target_fields = {field.name for field in self.model._meta.concrete_fields}
+        target_fields = {
+            value
+            for field in self.model._meta.concrete_fields
+            for value in (field.name, field.attname)
+        }
         missing_target = sorted(set(self.columns) - target_fields)
         if missing_target:
             raise MasterImportError(
                 f"{self.model._meta.label} no contiene: "
                 + ", ".join(missing_target)
             )
-        target_fks = [
-            field.name
+        target_fks = {
+            field.attname
             for field in self.model._meta.concrete_fields
             if field.is_relation and field.many_to_one
-        ]
-        if target_fks:
+        }
+        if target_fks != expected_fk_columns:
             raise MasterImportError(
-                f"{self.model._meta.label} incorporó FK no contempladas."
+                f"{self.model._meta.label} tiene FK distintas al manifiesto."
             )
         self.report.min_pk = min_pk
         self.report.max_pk = max_pk
+        self.report.defaults_applied = {
+            field_name: {"value": value, "applied_count": source_count}
+            for field_name, value in self.defaults.items()
+            if field_name not in self.source_columns
+        }
         self.report.status = "prepared"
         self._prepared = True
         return self.report
@@ -159,6 +179,16 @@ class MasterModelImporter(BaseImporter):
                     ).fetchall()
                     if rows:
                         unique_conflicts[field_name] = [row[0] for row in rows]
+                for fields in self.unique_together:
+                    selected = ", ".join(f'"{name}"' for name in fields)
+                    rows = connection.execute(
+                        f'SELECT {selected} FROM "{self.table_name}" '
+                        f'GROUP BY {selected} HAVING COUNT(*) > 1 LIMIT 20'
+                    ).fetchall()
+                    if rows:
+                        unique_conflicts["+".join(fields)] = [
+                            tuple(row) for row in rows
+                        ]
                 self.validate_source(connection)
         except sqlite3.DatabaseError as exc:
             raise MasterImportError(
@@ -172,6 +202,7 @@ class MasterModelImporter(BaseImporter):
             raise MasterImportError(
                 f"Conflictos de unicidad en {self.table_name}: {unique_conflicts}"
             )
+        self.validate_foreign_keys()
         if self.model._default_manager.using(self.using).exists():
             raise MasterImportError(
                 f"El destino {self.model._meta.db_table} no está vacío."
@@ -180,13 +211,42 @@ class MasterModelImporter(BaseImporter):
         self.report.status = "validated"
         return self.report
 
+    def validate_foreign_keys(self):
+        if not self.foreign_keys:
+            return
+        with closing(self._connect()) as connection:
+            for column_name, related_model in self.foreign_keys.items():
+                values = {
+                    row[0]
+                    for row in connection.execute(
+                        f'SELECT DISTINCT "{column_name}" '
+                        f'FROM "{self.table_name}" '
+                        f'WHERE "{column_name}" IS NOT NULL'
+                    )
+                }
+                existing = set(
+                    related_model._default_manager.using(self.using)
+                    .filter(pk__in=values)
+                    .values_list("pk", flat=True)
+                )
+                missing = sorted(values - existing)
+                if missing:
+                    raise MasterImportError(
+                        f"FK inválidas {column_name} en {self.table_name}: {missing}"
+                    )
+
     def validate_source(self, connection):
         """Hook de validaciones cruzadas que no escriben."""
 
     def iter_batches(self):
         if not self._validated:
             raise MasterImportError("Debe ejecutarse validate() antes de leer lotes.")
-        selected = ", ".join(f'"{name}"' for name in self.columns)
+        selected_names = tuple(
+            name
+            for name in self.columns + self.source_only_columns
+            if name in self.source_columns
+        )
+        selected = ", ".join(f'"{name}"' for name in selected_names)
         last_pk = None
         try:
             with closing(self._connect()) as connection:
@@ -261,7 +321,11 @@ class MasterModelImporter(BaseImporter):
         values = {
             field_name: self.convert_value(field_name, row[field_name])
             for field_name in self.columns
+            if field_name in row
         }
+        for field_name, value in self.defaults.items():
+            if field_name not in row:
+                values[field_name] = value
         instance = self.model(**values)
         try:
             instance.full_clean(validate_unique=False, validate_constraints=False)
