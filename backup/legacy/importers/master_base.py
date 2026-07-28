@@ -15,6 +15,7 @@ from django.db import transaction
 from django.db.models import Count, Max, Min
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date
 
 from .base import BaseImporter
 
@@ -53,6 +54,7 @@ class MasterModelImporter(BaseImporter):
     integer_fields: frozenset[str] = frozenset()
     decimal_fields: frozenset[str] = frozenset()
     timestamp_fields: tuple[str, ...] = ("creado", "actualizado")
+    date_fields: frozenset[str] = frozenset()
     unique_fields: tuple[str, ...] = ()
     unique_together: tuple[tuple[str, ...], ...] = ()
     source_only_columns: tuple[str, ...] = ()
@@ -313,6 +315,13 @@ class MasterModelImporter(BaseImporter):
                 raise MasterImportError(f"{field_name} no es decimal.") from exc
         if field_name in self.timestamp_fields:
             return self._datetime(value, field_name)
+        if field_name in self.date_fields:
+            if not isinstance(value, str):
+                raise MasterImportError(f"{field_name} no es una fecha válida.")
+            parsed = parse_date(value)
+            if parsed is None:
+                raise MasterImportError(f"{field_name} no es una fecha válida.")
+            return parsed
         if not isinstance(value, str):
             raise MasterImportError(f"{field_name} no contiene texto válido.")
         return value
