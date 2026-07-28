@@ -101,6 +101,102 @@ class FileService:
 
     @staticmethod
     @transaction.atomic
+    def upload_deduplicated(
+        file_obj,
+        *,
+        tipo,
+        content_type,
+        object_id,
+        rol="principal",
+        usuario=None,
+        observaciones="",
+        carpeta_almacenamiento=None,
+        perform_mime_validation=True,
+    ):
+        """Crea o reutiliza Archivo por checksum y asegura su relación."""
+        from ..models import Archivo, ArchivoRelacion
+
+        allowed_roles = {
+            value for value, _label in ArchivoRelacion.ROL_ARCHIVO
+        }
+        if rol not in allowed_roles:
+            raise ValueError(f"Rol de archivo inválido: {rol}")
+        if content_type is None or object_id is None:
+            raise ValueError(
+                "content_type y object_id son requeridos para deduplicar."
+            )
+
+        metadata = FileService.process_file(
+            file_obj,
+            perform_mime_validation=perform_mime_validation,
+        )
+        if not metadata["is_valid"]:
+            raise ValueError(
+                f"Validación fallida: {', '.join(metadata['errors'])}"
+            )
+        matches = list(
+            Archivo.objects.select_for_update()
+            .filter(checksum=metadata["checksum"], activo=True)
+            .order_by("pk")[:2]
+        )
+        if len(matches) > 1:
+            raise ValueError(
+                "Existen múltiples Archivo activos para el mismo checksum."
+            )
+        if matches:
+            archivo = matches[0]
+            relation, relation_created = ArchivoRelacion.objects.get_or_create(
+                archivo=archivo,
+                content_type=content_type,
+                object_id=object_id,
+                defaults={
+                    "rol": rol,
+                    "observaciones": observaciones or "",
+                },
+            )
+            if relation.rol != rol:
+                raise ValueError(
+                    "La relación existente posee un rol incompatible: "
+                    f"{relation.rol} != {rol}."
+                )
+            return {
+                "archivo_id": archivo.pk,
+                "archivo_path": archivo.archivo.name,
+                "relacion_id": relation.pk,
+                "checksum": archivo.checksum,
+                "mime_type": archivo.mime_type,
+                "extension": archivo.extension,
+                "tamaño_bytes": archivo.tamano_bytes,
+                "archivo_created": False,
+                "archivo_reused": True,
+                "relation_created": relation_created,
+                "relation_reused": not relation_created,
+            }
+
+        file_obj.seek(0)
+        uploaded = FileService.upload(
+            file_obj,
+            tipo=tipo,
+            content_type=content_type,
+            object_id=object_id,
+            usuario=usuario,
+            rol=rol,
+            observaciones=observaciones,
+            carpeta_almacenamiento=carpeta_almacenamiento,
+            perform_mime_validation=perform_mime_validation,
+        )
+        archivo = Archivo.objects.get(pk=uploaded["archivo_id"])
+        return {
+            **uploaded,
+            "archivo_path": archivo.archivo.name,
+            "archivo_created": True,
+            "archivo_reused": False,
+            "relation_created": uploaded["relacion_id"] is not None,
+            "relation_reused": False,
+        }
+
+    @staticmethod
+    @transaction.atomic
     def upload(
         file_obj,
         *,
@@ -322,4 +418,3 @@ class FileService:
     def generate_storage_path(carpeta, nombre_archivo):
         """Genera ruta de almacenamiento."""
         return FileStorage.generate_path(carpeta, nombre_archivo)
-

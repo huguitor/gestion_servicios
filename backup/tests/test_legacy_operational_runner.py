@@ -60,7 +60,26 @@ class FakeMedia:
 
     def migrate(self):
         type(self).calls += 1
-        return {"found": 0, "migrated": 0, "missing": []}
+        return {
+            "found": 0,
+            "migrated": 0,
+            "missing": [],
+            "validation": {"ok": True},
+        }
+
+
+class InvalidMedia(FakeMedia):
+    def migrate(self):
+        type(self).calls += 1
+        return {
+            "found": 1,
+            "migrated": 1,
+            "missing": [],
+            "validation": {
+                "ok": False,
+                "failures": ["archivo_relacion_missing"],
+            },
+        }
 
 
 class FakeSequences:
@@ -218,3 +237,34 @@ class LegacyOperationalRunnerTests(SimpleTestCase):
             LegacyMigrationRunner._sanitize(payload),
             {"nested": {"safe": "value"}},
         )
+
+    def test_integral_result_fails_when_media_validation_is_invalid(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner = self.build(
+                root,
+                apply=True,
+                pipeline=(),
+                media_migrator_class=InvalidMedia,
+            )
+
+            with self.assertRaisesRegex(
+                LegacyMigrationError, "multimedia"
+            ):
+                runner.run()
+
+            report = json.loads(
+                (
+                    root
+                    / "reports"
+                    / "operational-test"
+                    / "migration-report.json"
+                ).read_text()
+            )
+
+        self.assertEqual(report["result"], "migration_failed")
+        self.assertEqual(
+            report["media"]["data_state"],
+            "imported_domains_committed",
+        )
+        self.assertTrue(report["media"]["requires_fresh_destination"])

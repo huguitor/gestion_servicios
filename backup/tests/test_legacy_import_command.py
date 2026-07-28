@@ -86,3 +86,34 @@ class LegacyImportCommandTests(SimpleTestCase):
                     stderr=StringIO(),
                     **self.options(Path(temporary)),
                 )
+
+    @patch(
+        "backup.management.commands.import_legacy_sqlite.LegacyMigrationRunner"
+    )
+    @patch(
+        "backup.management.commands.import_legacy_sqlite.LegacyManifest.load"
+    )
+    def test_apply_prints_completed_only_for_integral_success(
+        self, load_manifest, runner_class
+    ):
+        load_manifest.return_value = SimpleNamespace(
+            run_id="test",
+            imported_mappings=(),
+            source_count=lambda table: 0,
+        )
+        runner_class.return_value.run.return_value = {
+            "run_id": "test",
+            "result": "migration_completed",
+            "report_dir": "/tmp/report",
+        }
+        output = StringIO()
+        with tempfile.TemporaryDirectory() as temporary:
+            options = self.options(Path(temporary))
+            options.update({"apply": True, "allow_production": True})
+            call_command(
+                "import_legacy_sqlite",
+                stdout=output,
+                **options,
+            )
+
+        self.assertIn("MIGRACIÓN COMPLETADA", output.getvalue())

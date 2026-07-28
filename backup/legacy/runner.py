@@ -265,14 +265,28 @@ class LegacyMigrationRunner:
                         perf_counter() - media_started, 6
                     ),
                 }
+                if not media.get("validation", {}).get("ok", False):
+                    self.report["media"]["status"] = "validation_failed"
+                    raise LegacyMigrationError(
+                        "La validación multimedia obligatoria falló."
+                    )
             except Exception as exc:
-                self.report["media"] = {
-                    "status": "rolled_back",
-                    "error": str(exc),
-                    "duration_seconds": round(
-                        perf_counter() - media_started, 6
-                    ),
-                }
+                if self.report["media"].get("status") != "validation_failed":
+                    self.report["media"] = {
+                        "status": "rolled_back",
+                        "error": str(exc),
+                        "duration_seconds": round(
+                            perf_counter() - media_started, 6
+                        ),
+                    }
+                else:
+                    self.report["media"]["error"] = str(exc)
+                self.report["media"].update(
+                    {
+                        "data_state": "imported_domains_committed",
+                        "requires_fresh_destination": True,
+                    }
+                )
                 raise
 
             sequence_started = perf_counter()
@@ -459,6 +473,9 @@ class LegacyMigrationRunner:
             not self.report["media"].get("missing")
             and self.report["media"].get("found", 0)
             == self.report["media"].get("migrated", 0)
+            and self.report["media"].get(
+                "validation", {"ok": True}
+            ).get("ok", False)
         )
         if not media_ok:
             raise LegacyMigrationError(
