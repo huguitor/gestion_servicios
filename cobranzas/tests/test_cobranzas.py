@@ -194,7 +194,7 @@ class FacturaCobranzaModelTests(CobranzasFixturesMixin, TestCase):
         self.assertEqual(factura.estado, "pagado")
         self.assertEqual(factura.fecha_ultimo_cobro, date(2026, 7, 11))
 
-    def test_campos_comerciales_quedan_bloqueados_despues_de_cobrar(self):
+    def test_identidad_queda_bloqueada_pero_total_se_puede_editar_despues_de_cobrar(self):
         factura = self.crear_factura()
         registrar_cobro(
             factura=factura,
@@ -210,7 +210,6 @@ class FacturaCobranzaModelTests(CobranzasFixturesMixin, TestCase):
             "tipo_comprobante": FacturaCobranza.TIPO_FACTURA_B,
             "punto_venta": 2,
             "numero_factura": 999,
-            "total": Decimal("1200.00"),
         }
         for campo, valor in cambios_bloqueados.items():
             with self.subTest(campo=campo):
@@ -220,6 +219,10 @@ class FacturaCobranzaModelTests(CobranzasFixturesMixin, TestCase):
                     factura.save()
 
         factura.refresh_from_db()
+        factura.total = Decimal("1200.02")
+        factura.save()
+        factura.refresh_from_db()
+        self.assertEqual(factura.total, Decimal("1200.02"))
         factura.fecha_estimada_manual = True
         factura.fecha_estimada_cobro = date(2026, 8, 31)
         factura.save()
@@ -394,6 +397,143 @@ class CobranzasAPITests(CobranzasFixturesMixin, APITestCase):
         self.assertEqual(response.data["fecha_estimada_cobro"], "2026-07-25")
         self.assertEqual(response.data["numero_completo"], "00001-00000150")
         self.assertEqual(response.data["estado"], "pendiente")
+
+    def test_importes_se_conservan_exactamente_en_todo_el_flujo_api(self):
+        valores = ("0.01", "0.02", "10.10", "100.99", "125430.52", "123456.78")
+        for indice, valor in enumerate(valores, start=1):
+            with self.subTest(valor=valor):
+                response = self.client.post(
+                    reverse("cobranzas-facturas-list"),
+                    self.payload_factura(numero_factura=200 + indice, total=valor),
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+                self.assertEqual(response.data["total"], valor)
+                factura = FacturaCobranza.objects.get(pk=response.data["id"])
+                self.assertIsInstance(factura.total, Decimal)
+                self.assertEqual(factura.total, Decimal(valor))
+                recuperada = self.client.get(
+                    reverse("cobranzas-facturas-detail", args=[factura.id])
+                )
+                self.assertEqual(recuperada.data["total"], valor)
+
+    def test_actualizar_importe_conserva_centavos_y_permiso_existente(self):
+        factura = self.crear_factura(total=Decimal("125430.52"))
+        response = self.client.patch(
+            reverse("cobranzas-facturas-detail", args=[factura.id]),
+            {"total": "125430.50"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["total"], "125430.50")
+        self.assertEqual(response.data["saldo_pendiente"], "125430.50")
+        factura.refresh_from_db()
+        self.assertEqual(factura.total, Decimal("125430.50"))
+
+    def test_nota_credito_aplica_signo_sin_contarse_como_cobro(self):
+        factura = self.crear_factura(total=Decimal("100000.00"))
+        registrar_cobro(
+            factura=factura,
+            registrado_por=self.usuario,
+            fecha_cobro=date(2026, 7, 10),
+            importe=Decimal("80000.00"),
+            medio_pago="transferencia",
+        )
+        response = self.client.post(
+            reverse("cobranzas-facturas-list"),
+            self.payload_factura(
+                numero_factura=901,
+                tipo_comprobante="nota_credito",
+                total="20000.00",
+                comprobante_original=factura.id,
+            ),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["total"], "20000.00")
+        self.assertEqual(response.data["importe_con_efecto"], "-20000.00")
+        self.assertEqual(response.data["total_cobrado"], "0.00")
+        self.assertEqual(response.data["estado"], "aplicada")
+        factura.refresh_from_db()
+        self.assertEqual(factura.total_notas_credito, Decimal("20000.00"))
+        self.assertEqual(factura.total_cobrado, Decimal("80000.00"))
+        self.assertEqual(factura.saldo_pendiente, Decimal("0.00"))
+        self.assertEqual(factura.estado, "pagado")
+
+    def test_nota_credito_rechaza_importes_no_positivos_y_exceso(self):
+        factura = self.crear_factura(total=Decimal("100.00"))
+        for indice, valor in enumerate(("0.00", "-1.00"), start=1):
+            response = self.client.post(
+                reverse("cobranzas-facturas-list"),
+                self.payload_factura(
+                    numero_factura=920 + indice,
+                    tipo_comprobante="nota_credito",
+                    total=valor,
+                    comprobante_original=factura.id,
+                ),
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        exceso = self.client.post(
+            reverse("cobranzas-facturas-list"),
+            self.payload_factura(
+                numero_factura=930,
+                tipo_comprobante="nota_credito",
+                total="100.01",
+                comprobante_original=factura.id,
+            ),
+            format="json",
+        )
+        self.assertEqual(exceso.status_code, status.HTTP_400_BAD_REQUEST, exceso.data)
+
+    def test_caso_integrado_centavos_nota_credito_y_cobro(self):
+        factura = self.crear_factura(total=Decimal("125430.52"))
+        nota = self.client.post(
+            reverse("cobranzas-facturas-list"),
+            self.payload_factura(
+                numero_factura=940,
+                tipo_comprobante="nota_credito",
+                total="0.02",
+                comprobante_original=factura.id,
+            ),
+            format="json",
+        )
+        self.assertEqual(nota.status_code, status.HTTP_201_CREATED, nota.data)
+        cobro = self.client.post(
+            reverse("cobranzas-facturas-cobros", args=[factura.id]),
+            {
+                "fecha_cobro": "2026-07-10",
+                "importe": "125430.50",
+                "medio_pago": "transferencia",
+            },
+            format="json",
+        )
+        self.assertEqual(cobro.status_code, status.HTTP_201_CREATED, cobro.data)
+        detalle = self.client.get(
+            reverse("cobranzas-facturas-detail", args=[factura.id])
+        )
+        self.assertEqual(detalle.data["total"], "125430.52")
+        self.assertEqual(detalle.data["total_notas_credito"], "0.02")
+        self.assertEqual(detalle.data["total_cobrado"], "125430.50")
+        self.assertEqual(detalle.data["saldo_pendiente"], "0.00")
+
+    def test_pago_parcial_conserva_saldo_de_dos_centavos(self):
+        factura = self.crear_factura(total=Decimal("125430.52"))
+        cobro = self.client.post(
+            reverse("cobranzas-facturas-cobros", args=[factura.id]),
+            {
+                "fecha_cobro": "2026-07-10",
+                "importe": "125430.50",
+                "medio_pago": "transferencia",
+            },
+            format="json",
+        )
+        self.assertEqual(cobro.status_code, status.HTTP_201_CREATED, cobro.data)
+        detalle = self.client.get(
+            reverse("cobranzas-facturas-detail", args=[factura.id])
+        )
+        self.assertEqual(detalle.data["saldo_pendiente"], "0.02")
+        self.assertEqual(detalle.data["estado"], "parcial")
 
     def test_fecha_enviada_manualmente_activa_marca(self):
         response = self.client.post(

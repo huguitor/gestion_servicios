@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Sum
@@ -83,6 +85,12 @@ class FacturaCobranzaSerializer(serializers.ModelSerializer):
     total_cobrado = serializers.DecimalField(
         max_digits=14, decimal_places=2, read_only=True
     )
+    total_notas_credito = serializers.DecimalField(
+        max_digits=14, decimal_places=2, read_only=True
+    )
+    importe_con_efecto = serializers.DecimalField(
+        max_digits=14, decimal_places=2, read_only=True
+    )
     saldo_pendiente = serializers.DecimalField(
         max_digits=14, decimal_places=2, read_only=True
     )
@@ -115,6 +123,8 @@ class FacturaCobranzaSerializer(serializers.ModelSerializer):
             "numero_completo",
             "orden_compra",
             "total",
+            "importe_con_efecto",
+            "comprobante_original",
             "observaciones",
             "fecha_envio",
             "medio_envio",
@@ -127,6 +137,7 @@ class FacturaCobranzaSerializer(serializers.ModelSerializer):
             "creado",
             "actualizado",
             "total_cobrado",
+            "total_notas_credito",
             "saldo_pendiente",
             "fecha_ultimo_cobro",
             "estado",
@@ -202,10 +213,18 @@ class FacturaCobranzaSerializer(serializers.ModelSerializer):
         if self.instance and "total" in attrs:
             total_cobrado = self.instance.cobros.aggregate(total=Sum("importe"))[
                 "total"
-            ] or 0
-            if attrs["total"] < total_cobrado:
+            ] or Decimal("0.00")
+            total_notas_credito = self.instance.notas_credito.aggregate(
+                total=Sum("total")
+            )["total"] or Decimal("0.00")
+            if attrs["total"] < total_cobrado + total_notas_credito:
                 raise serializers.ValidationError(
-                    {"total": "El total no puede ser menor que los cobros registrados."}
+                    {
+                        "total": (
+                            "El total no puede ser menor que los cobros y "
+                            "notas de crédito aplicados."
+                        )
+                    }
                 )
         if self.instance and self.instance.cobros.exists():
             campos_bloqueados = (
@@ -214,7 +233,6 @@ class FacturaCobranzaSerializer(serializers.ModelSerializer):
                 "tipo_comprobante",
                 "punto_venta",
                 "numero_factura",
-                "total",
                 "presupuesto",
             )
             errores = {
@@ -248,7 +266,10 @@ class FacturaCobranzaSerializer(serializers.ModelSerializer):
         cliente = validated_data["cliente"]
         validated_data.setdefault("plazo_cobro_dias", cliente.plazo_cobro_dias)
         self._completar_referencia_presupuesto(validated_data)
-        factura = FacturaCobranza.objects.create(**validated_data)
+        try:
+            factura = FacturaCobranza.objects.create(**validated_data)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict) from exc
         factura.remitos.set(remitos)
         return factura
 
@@ -256,7 +277,10 @@ class FacturaCobranzaSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         remitos = validated_data.pop("remitos", None)
         self._completar_referencia_presupuesto(validated_data)
-        instance = super().update(instance, validated_data)
+        try:
+            instance = super().update(instance, validated_data)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict) from exc
         if remitos is not None:
             instance.remitos.set(remitos)
         return instance

@@ -5,6 +5,7 @@ from django.db.models import (
     DateField,
     DecimalField,
     F,
+    ExpressionWrapper,
     OuterRef,
     Q,
     Subquery,
@@ -77,6 +78,15 @@ class FacturaCobranzaViewSet(viewsets.ModelViewSet):
         ultimo_cobro = Cobro.objects.filter(
             factura_id=OuterRef("pk")
         ).order_by("-fecha_cobro", "-id").values("fecha_cobro")[:1]
+        total_notas_credito = (
+            FacturaCobranza.objects.filter(
+                comprobante_original_id=OuterRef("pk"),
+                tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO,
+            )
+            .values("comprobante_original_id")
+            .annotate(total=Sum("total"))
+            .values("total")[:1]
+        )
         queryset = (
             FacturaCobranza.objects.select_related(
                 "cliente",
@@ -99,6 +109,19 @@ class FacturaCobranzaViewSet(viewsets.ModelViewSet):
                     ultimo_cobro,
                     output_field=DateField(),
                 ),
+                _total_notas_credito=Coalesce(
+                    Subquery(
+                        total_notas_credito,
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    ),
+                    ZERO_MONEY,
+                ),
+            )
+            .annotate(
+                _total_aplicado=ExpressionWrapper(
+                    F("_total_cobrado") + F("_total_notas_credito"),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
             )
             .distinct()
         )
@@ -165,32 +188,48 @@ class FacturaCobranzaViewSet(viewsets.ModelViewSet):
         inicio_mes = hoy.replace(day=1)
         fin_proximas = hoy + timedelta(days=7)
         queryset = self.filter_queryset(self.get_queryset())
-        pendientes = queryset.filter(_total_cobrado__lt=F("total"))
+        facturas = queryset.exclude(
+            tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO
+        )
+        pendientes = facturas.filter(_total_aplicado__lt=F("total"))
 
         resumen = pendientes.aggregate(
             total_pendiente=Coalesce(
-                Sum(F("total") - F("_total_cobrado")),
+                Sum(F("total") - F("_total_aplicado")),
                 ZERO_MONEY,
             ),
             total_vencido=Coalesce(
                 Sum(
-                    F("total") - F("_total_cobrado"),
+                    F("total") - F("_total_aplicado"),
                     filter=Q(fecha_estimada_cobro__lt=hoy),
                 ),
                 ZERO_MONEY,
             ),
+        )
+        total_facturado = facturas.aggregate(
+            total=Coalesce(Sum("total"), ZERO_MONEY)
+        )["total"]
+        total_notas_credito = queryset.filter(
+            tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO
+        ).aggregate(total=Coalesce(Sum("total"), ZERO_MONEY))["total"]
+        total_cobrado_documentos = facturas.aggregate(
+            total=Coalesce(Sum("_total_cobrado"), ZERO_MONEY)
+        )["total"]
+        resumen["total_pendiente"] = max(
+            total_facturado - total_notas_credito - total_cobrado_documentos,
+            Decimal("0.00"),
         )
         total_cobrado_mes = Cobro.objects.filter(
             fecha_cobro__gte=inicio_mes,
             fecha_cobro__lte=hoy,
         ).aggregate(total=Coalesce(Sum("importe"), ZERO_MONEY))["total"]
         cantidades = {
-            "pendiente": queryset.filter(_total_cobrado=Decimal("0.00")).count(),
-            "parcial": queryset.filter(
-                _total_cobrado__gt=Decimal("0.00"),
-                _total_cobrado__lt=F("total"),
+            "pendiente": facturas.filter(_total_aplicado=Decimal("0.00")).count(),
+            "parcial": facturas.filter(
+                _total_aplicado__gt=Decimal("0.00"),
+                _total_aplicado__lt=F("total"),
             ).count(),
-            "pagado": queryset.filter(_total_cobrado=F("total")).count(),
+            "pagado": facturas.filter(_total_aplicado=F("total")).count(),
         }
         proximas = pendientes.filter(
             fecha_estimada_cobro__gte=hoy,
@@ -200,6 +239,8 @@ class FacturaCobranzaViewSet(viewsets.ModelViewSet):
         return Response(
             {
                 **resumen,
+                "total_facturado": total_facturado,
+                "total_notas_credito": total_notas_credito,
                 "total_cobrado_mes": total_cobrado_mes,
                 "cantidades_por_estado": cantidades,
                 "proximas_a_vencer": FacturaCobranzaListSerializer(

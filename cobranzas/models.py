@@ -14,14 +14,27 @@ class FacturaCobranza(models.Model):
     TIPO_FACTURA_B = "factura_b"
     TIPO_FACTURA_C = "factura_c"
     TIPO_NOTA_DEBITO = "nota_debito"
+    TIPO_NOTA_CREDITO = "nota_credito"
     TIPO_OTRO = "otro"
     TIPO_COMPROBANTE_CHOICES = [
         (TIPO_FACTURA_A, "Factura A"),
         (TIPO_FACTURA_B, "Factura B"),
         (TIPO_FACTURA_C, "Factura C"),
         (TIPO_NOTA_DEBITO, "Nota de débito"),
+        (TIPO_NOTA_CREDITO, "Nota de crédito"),
         (TIPO_OTRO, "Otro"),
     ]
+    TIPOS_FACTURA = frozenset(
+        {TIPO_FACTURA_A, TIPO_FACTURA_B, TIPO_FACTURA_C, TIPO_NOTA_DEBITO, TIPO_OTRO}
+    )
+    SIGNOS_COMPROBANTE = {
+        TIPO_FACTURA_A: 1,
+        TIPO_FACTURA_B: 1,
+        TIPO_FACTURA_C: 1,
+        TIPO_NOTA_DEBITO: 1,
+        TIPO_OTRO: 1,
+        TIPO_NOTA_CREDITO: -1,
+    }
 
     MEDIO_ENVIO_CHOICES = [
         ("correo_electronico", "Correo electrónico"),
@@ -63,6 +76,13 @@ class FacturaCobranza(models.Model):
         validators=[MinValueValidator(Decimal("0.01"))],
     )
     observaciones = models.TextField(blank=True)
+    comprobante_original = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="notas_credito",
+    )
 
     fecha_envio = models.DateField(null=True, blank=True)
     medio_envio = models.CharField(
@@ -142,8 +162,17 @@ class FacturaCobranza(models.Model):
             total_cobrado = self.cobros.aggregate(total=Sum("importe"))[
                 "total"
             ] or Decimal("0.00")
-            if self.total is not None and self.total < total_cobrado:
-                errors["total"] = "El total no puede ser menor que los cobros registrados."
+            total_notas_credito = self.notas_credito.aggregate(total=Sum("total"))[
+                "total"
+            ] or Decimal("0.00")
+            if (
+                self.total is not None
+                and not self.es_nota_credito
+                and self.total < total_cobrado + total_notas_credito
+            ):
+                errors["total"] = (
+                    "El total no puede ser menor que los cobros y notas de crédito aplicados."
+                )
 
             if total_cobrado > Decimal("0.00"):
                 original = FacturaCobranza.objects.get(pk=self.pk)
@@ -153,7 +182,6 @@ class FacturaCobranza(models.Model):
                     "tipo_comprobante": "tipo_comprobante",
                     "punto_venta": "punto_venta",
                     "numero_factura": "numero_factura",
-                    "total": "total",
                     "presupuesto_id": "presupuesto",
                 }
                 for atributo, campo in campos_bloqueados.items():
@@ -161,6 +189,46 @@ class FacturaCobranza(models.Model):
                         errors[campo] = (
                             "Este campo no puede modificarse después de registrar cobros."
                         )
+        if self.es_nota_credito:
+            if self.comprobante_original_id:
+                original = self.comprobante_original
+                if original.es_nota_credito:
+                    errors["comprobante_original"] = (
+                        "La Nota de Crédito debe vincularse a una factura."
+                    )
+                elif original.cliente_id != self.cliente_id:
+                    errors["comprobante_original"] = (
+                        "La factura original debe pertenecer al mismo cliente."
+                    )
+                else:
+                    otras_notas = original.notas_credito.exclude(pk=self.pk).aggregate(
+                        total=Sum("total")
+                    )["total"] or Decimal("0.00")
+                    saldo_aplicable = original.total - original.total_cobrado - otras_notas
+                    if self.total is not None and self.total > saldo_aplicable:
+                        errors["total"] = (
+                            f"La Nota de Crédito supera el saldo aplicable ({saldo_aplicable})."
+                        )
+            elif self.cliente_id and self.total is not None:
+                comprobantes = FacturaCobranza.objects.filter(cliente_id=self.cliente_id)
+                deuda = comprobantes.exclude(
+                    tipo_comprobante=self.TIPO_NOTA_CREDITO
+                ).aggregate(total=Sum("total"))["total"] or Decimal("0.00")
+                creditos = comprobantes.filter(
+                    tipo_comprobante=self.TIPO_NOTA_CREDITO
+                ).exclude(pk=self.pk).aggregate(total=Sum("total"))["total"] or Decimal("0.00")
+                cobrado = Cobro.objects.filter(
+                    factura__cliente_id=self.cliente_id
+                ).aggregate(total=Sum("importe"))["total"] or Decimal("0.00")
+                saldo_aplicable = deuda - creditos - cobrado
+                if self.total > saldo_aplicable:
+                    errors["total"] = (
+                        f"La Nota de Crédito supera el saldo del cliente ({saldo_aplicable})."
+                    )
+        elif self.comprobante_original_id:
+            errors["comprobante_original"] = (
+                "Solo una Nota de Crédito puede vincularse a una factura original."
+            )
         if self.fecha_envio and self.fecha_envio < self.fecha_factura:
             errors["fecha_envio"] = "La fecha de envío no puede ser anterior a la fecha de factura."
         if self.fecha_estimada_manual and not self.fecha_estimada_cobro:
@@ -225,8 +293,34 @@ class FacturaCobranza(models.Model):
         return agregado or Decimal("0.00")
 
     @property
+    def total_notas_credito(self):
+        if self.es_nota_credito:
+            return Decimal("0.00")
+        if hasattr(self, "_total_notas_credito"):
+            return self._total_notas_credito or Decimal("0.00")
+        agregado = self.notas_credito.aggregate(total=Sum("total"))["total"]
+        return agregado or Decimal("0.00")
+
+    @property
+    def signo(self):
+        return self.SIGNOS_COMPROBANTE[self.tipo_comprobante]
+
+    @property
+    def importe_con_efecto(self):
+        return self.total * self.signo
+
+    @property
+    def es_nota_credito(self):
+        return self.tipo_comprobante == self.TIPO_NOTA_CREDITO
+
+    @property
     def saldo_pendiente(self):
-        return self.total - self.total_cobrado
+        if self.es_nota_credito:
+            return Decimal("0.00")
+        return max(
+            self.total - self.total_notas_credito - self.total_cobrado,
+            Decimal("0.00"),
+        )
 
     @property
     def fecha_ultimo_cobro(self):
@@ -238,10 +332,13 @@ class FacturaCobranza(models.Model):
 
     @property
     def estado(self):
+        if self.es_nota_credito:
+            return "aplicada"
         total_cobrado = self.total_cobrado
-        if total_cobrado == Decimal("0.00"):
+        cancelado = total_cobrado + self.total_notas_credito
+        if cancelado == Decimal("0.00"):
             return "pendiente"
-        if total_cobrado < self.total:
+        if cancelado < self.total:
             return "parcial"
         return "pagado"
 
@@ -335,7 +432,12 @@ class Cobro(models.Model):
             otros = self.factura.cobros.exclude(pk=self.pk).aggregate(
                 total=Sum("importe")
             )["total"] or Decimal("0.00")
-            if otros + self.importe > self.factura.total:
+            saldo_documento = self.factura.total - self.factura.total_notas_credito
+            if self.factura.es_nota_credito:
+                raise ValidationError(
+                    {"factura": "Una Nota de Crédito no puede recibir cobros."}
+                )
+            if otros + self.importe > saldo_documento:
                 raise ValidationError({"importe": "El cobro supera el saldo pendiente de la factura."})
 
     def __str__(self):

@@ -49,22 +49,30 @@ class FacturaCobranzaFilter(filters.FilterSet):
 
     def filter_estado(self, queryset, name, value):
         if value == "pendiente":
-            return queryset.filter(_total_cobrado=Decimal("0.00"))
+            return queryset.exclude(
+                tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO
+            ).filter(_total_aplicado=Decimal("0.00"))
         if value == "parcial":
-            return queryset.filter(
-                _total_cobrado__gt=Decimal("0.00"),
-                _total_cobrado__lt=models_f("total"),
+            return queryset.exclude(
+                tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO
+            ).filter(
+                _total_aplicado__gt=Decimal("0.00"),
+                _total_aplicado__lt=models_f("total"),
             )
         if value == "pagado":
-            return queryset.filter(_total_cobrado=models_f("total"))
+            return queryset.exclude(
+                tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO
+            ).filter(_total_aplicado=models_f("total"))
         return queryset
 
     def filter_semaforo(self, queryset, name, value):
         hoy = timezone.localdate()
         limite = hoy + timedelta(days=7)
-        con_saldo = Q(_total_cobrado__lt=models_f("total"))
+        con_saldo = Q(_total_aplicado__lt=models_f("total")) & ~Q(
+            tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO
+        )
         if value == "gris":
-            return queryset.filter(_total_cobrado=models_f("total"))
+            return queryset.filter(_total_aplicado=models_f("total"))
         if value == "rojo":
             return queryset.filter(con_saldo, fecha_estimada_cobro__lt=hoy)
         if value == "amarillo":
@@ -82,7 +90,8 @@ class FacturaCobranzaFilter(filters.FilterSet):
 
     def filter_vencidas(self, queryset, name, value):
         condicion = Q(
-            _total_cobrado__lt=models_f("total"),
+            _total_aplicado__lt=models_f("total"),
+            tipo_comprobante__in=FacturaCobranza.TIPOS_FACTURA,
             fecha_estimada_cobro__lt=timezone.localdate(),
         )
         return queryset.filter(condicion) if value else queryset.exclude(condicion)
@@ -101,17 +110,24 @@ class FacturaCobranzaFilter(filters.FilterSet):
         return queryset.none()
 
     def filter_con_saldo(self, queryset, name, value):
-        condicion = Q(_total_cobrado__lt=models_f("total"))
+        condicion = Q(
+            _total_aplicado__lt=models_f("total"),
+            tipo_comprobante__in=FacturaCobranza.TIPOS_FACTURA,
+        )
         return queryset.filter(condicion) if value else queryset.exclude(condicion)
 
     def filter_pagadas(self, queryset, name, value):
-        condicion = Q(_total_cobrado=models_f("total"))
+        condicion = Q(
+            _total_aplicado=models_f("total"),
+            tipo_comprobante__in=FacturaCobranza.TIPOS_FACTURA,
+        )
         return queryset.filter(condicion) if value else queryset.exclude(condicion)
 
     def filter_proximas(self, queryset, name, value):
         hoy = timezone.localdate()
         condicion = Q(
-            _total_cobrado__lt=models_f("total"),
+            _total_aplicado__lt=models_f("total"),
+            tipo_comprobante__in=FacturaCobranza.TIPOS_FACTURA,
             fecha_estimada_cobro__gte=hoy,
             fecha_estimada_cobro__lte=hoy + timedelta(days=7),
         )
