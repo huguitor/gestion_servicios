@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.db.models import Q
 from django.utils import timezone
 from django_filters import rest_framework as filters
+from rest_framework.exceptions import ValidationError
 
 from .models import FacturaCobranza
 
@@ -33,6 +34,8 @@ class FacturaCobranzaFilter(filters.FilterSet):
     presupuesto = filters.NumberFilter(field_name="presupuesto_id")
     fecha_factura_desde = filters.DateFilter(field_name="fecha_factura", lookup_expr="gte")
     fecha_factura_hasta = filters.DateFilter(field_name="fecha_factura", lookup_expr="lte")
+    fecha_desde = filters.DateFilter(field_name="fecha_factura", lookup_expr="gte")
+    fecha_hasta = filters.DateFilter(field_name="fecha_factura", lookup_expr="lte")
     fecha_estimada_desde = filters.DateFilter(
         field_name="fecha_estimada_cobro", lookup_expr="gte"
     )
@@ -46,6 +49,15 @@ class FacturaCobranzaFilter(filters.FilterSet):
     class Meta:
         model = FacturaCobranza
         fields = ["cliente", "tipo_comprobante"]
+
+    def filter_queryset(self, queryset):
+        fecha_desde = self.form.cleaned_data.get("fecha_desde")
+        fecha_hasta = self.form.cleaned_data.get("fecha_hasta")
+        if fecha_desde and fecha_hasta and fecha_desde > fecha_hasta:
+            raise ValidationError(
+                {"fecha_hasta": "La fecha Hasta debe ser igual o posterior a Desde."}
+            )
+        return super().filter_queryset(queryset)
 
     def filter_estado(self, queryset, name, value):
         if value == "pendiente":

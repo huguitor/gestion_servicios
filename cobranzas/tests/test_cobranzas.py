@@ -1,7 +1,9 @@
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 from unittest.mock import patch
 
+from openpyxl import load_workbook
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
 from django.core.exceptions import ValidationError
@@ -661,6 +663,69 @@ class CobranzasAPITests(CobranzasFixturesMixin, APITestCase):
         self.assertNotIn("cobros", response.data[0])
         self.assertNotIn("seguimientos", response.data[0])
 
+    def test_filtros_fecha_son_inclusivos_y_validan_el_rango(self):
+        self.crear_factura(numero_factura=301, fecha_factura=date(2026, 6, 30))
+        self.crear_factura(numero_factura=302, fecha_factura=date(2026, 7, 1))
+        self.crear_factura(numero_factura=303, fecha_factura=date(2026, 7, 31))
+        self.crear_factura(numero_factura=304, fecha_factura=date(2026, 8, 1))
+        url = reverse("cobranzas-facturas-list")
+
+        desde = self.client.get(url, {"fecha_desde": "2026-07-31"})
+        self.assertEqual(
+            {row["numero_factura"] for row in desde.data},
+            {303, 304},
+        )
+        hasta = self.client.get(url, {"fecha_hasta": "2026-07-01"})
+        self.assertEqual(
+            {row["numero_factura"] for row in hasta.data},
+            {301, 302},
+        )
+        rango = self.client.get(
+            url,
+            {"fecha_desde": "2026-07-01", "fecha_hasta": "2026-07-31"},
+        )
+        self.assertEqual(
+            {row["numero_factura"] for row in rango.data},
+            {302, 303},
+        )
+        invalido = self.client.get(
+            url,
+            {"fecha_desde": "2026-08-01", "fecha_hasta": "2026-07-01"},
+        )
+        self.assertEqual(invalido.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("fecha_hasta", invalido.data)
+
+    def test_fechas_se_combinan_con_cliente_estado_y_busqueda(self):
+        otro = self.crear_cliente("Buscado Especial")
+        self.crear_factura(
+            numero_factura=310,
+            fecha_factura=date(2026, 7, 10),
+            cliente=otro,
+        )
+        parcial = self.crear_factura(
+            numero_factura=311,
+            fecha_factura=date(2026, 7, 11),
+            cliente=otro,
+        )
+        registrar_cobro(
+            factura=parcial,
+            registrado_por=self.usuario,
+            fecha_cobro=date(2026, 7, 12),
+            importe=Decimal("10.10"),
+            medio_pago="transferencia",
+        )
+        self.crear_factura(numero_factura=312, fecha_factura=date(2026, 8, 1))
+        params = {
+            "fecha_desde": "2026-07-01",
+            "fecha_hasta": "2026-07-31",
+            "cliente": otro.id,
+            "estado": "parcial",
+            "search": "Especial",
+        }
+        response = self.client.get(reverse("cobranzas-facturas-list"), params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual([row["numero_factura"] for row in response.data], [311])
+
     def test_permisos_especificos_de_cobros_y_seguimientos(self):
         factura = self.crear_factura()
         usuario = get_user_model().objects.create_user(
@@ -822,3 +887,157 @@ class CobranzasAPITests(CobranzasFixturesMixin, APITestCase):
             {"pendiente": 1, "parcial": 1, "pagado": 1},
         )
         self.assertEqual(len(response.data["proximas_a_vencer"]), 1)
+
+    @patch("cobranzas.views.timezone.localdate", return_value=date(2026, 8, 20))
+    def test_dashboard_respeta_rango_y_cobros_de_comprobantes_filtrados(
+        self, _localdate
+    ):
+        factura = self.crear_factura(
+            numero_factura=401,
+            fecha_factura=date(2026, 7, 1),
+            total=Decimal("125430.52"),
+            fecha_estimada_cobro=date(2026, 7, 10),
+            fecha_estimada_manual=True,
+        )
+        registrar_cobro(
+            factura=factura,
+            registrado_por=self.usuario,
+            fecha_cobro=date(2026, 8, 5),
+            importe=Decimal("10.10"),
+            medio_pago="transferencia",
+        )
+        self.crear_factura(
+            numero_factura=402,
+            fecha_factura=date(2026, 7, 15),
+            tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO,
+            total=Decimal("0.02"),
+        )
+        self.crear_factura(
+            numero_factura=403,
+            fecha_factura=date(2026, 8, 1),
+            total=Decimal("123456.78"),
+        )
+        response = self.client.get(
+            reverse("cobranzas-facturas-dashboard"),
+            {"fecha_desde": "2026-07-01", "fecha_hasta": "2026-07-31"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(Decimal(response.data["total_facturado"]), Decimal("125430.52"))
+        self.assertEqual(Decimal(response.data["total_notas_credito"]), Decimal("0.02"))
+        self.assertEqual(Decimal(response.data["total_cobrado_mes"]), Decimal("10.10"))
+        self.assertEqual(Decimal(response.data["total_pendiente"]), Decimal("125420.40"))
+        self.assertEqual(Decimal(response.data["total_vencido"]), Decimal("125420.42"))
+        self.assertEqual(
+            response.data["cantidades_por_estado"],
+            {"pendiente": 0, "parcial": 1, "pagado": 0},
+        )
+
+    def test_exportacion_excel_respeta_filtros_cabeceras_y_centavos(self):
+        otro = self.crear_cliente("Cliente Excel")
+        incluida = self.crear_factura(
+            cliente=otro,
+            numero_factura=501,
+            fecha_factura=date(2026, 7, 31),
+            total=Decimal("125430.52"),
+            orden_compra="OC-XLSX",
+        )
+        registrar_cobro(
+            factura=incluida,
+            registrado_por=self.usuario,
+            fecha_cobro=date(2026, 8, 1),
+            importe=Decimal("0.02"),
+            medio_pago="transferencia",
+        )
+        self.crear_factura(
+            cliente=otro,
+            numero_factura=503,
+            fecha_factura=date(2026, 7, 31),
+            tipo_comprobante=FacturaCobranza.TIPO_NOTA_CREDITO,
+            total=Decimal("0.01"),
+            comprobante_original=incluida,
+            orden_compra="OC-XLSX",
+        )
+        self.crear_factura(
+            numero_factura=502,
+            fecha_factura=date(2026, 8, 1),
+            total=Decimal("123456.78"),
+        )
+        url = reverse("cobranzas-facturas-exportar-excel")
+        response = self.client.get(
+            url,
+            {
+                "fecha_desde": "2026-07-01",
+                "fecha_hasta": "2026-07-31",
+                "cliente": otro.id,
+                "search": "OC-XLSX",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn(
+            'filename="cobranzas_2026-07-01_a_2026-07-31.xlsx"',
+            response["Content-Disposition"],
+        )
+        workbook = load_workbook(BytesIO(response.content), data_only=True)
+        sheet = workbook["Cobranzas"]
+        headers = [cell.value for cell in sheet[1]]
+        self.assertIn("Importe nominal", headers)
+        self.assertIn("Importe contable", headers)
+        self.assertIn("Factura original asociada", headers)
+        self.assertEqual(sheet.max_row, 3)
+        filas = {
+            sheet.cell(row, 6).value: row
+            for row in range(2, sheet.max_row + 1)
+        }
+        fila_factura = filas[501]
+        fila_nota = filas[503]
+        self.assertEqual(
+            sheet.cell(fila_factura, 1).value.date(),
+            date(2026, 7, 31),
+        )
+        self.assertEqual(
+            Decimal(str(sheet.cell(fila_factura, 9).value)),
+            Decimal("125430.52"),
+        )
+        self.assertEqual(
+            Decimal(str(sheet.cell(fila_factura, 12).value)),
+            Decimal("0.02"),
+        )
+        self.assertEqual(sheet.cell(fila_nota, 10).value, -1)
+        self.assertEqual(
+            Decimal(str(sheet.cell(fila_nota, 11).value)),
+            Decimal("-0.01"),
+        )
+        self.assertEqual(
+            sheet.cell(fila_nota, 22).value,
+            incluida.numero_completo,
+        )
+        self.assertEqual(sheet.freeze_panes, "A2")
+        self.assertTrue(sheet.auto_filter.ref)
+
+    def test_exportacion_sin_filtros_permisos_y_licencia(self):
+        self.crear_factura(numero_factura=510, total=Decimal("0.01"))
+        url = reverse("cobranzas-facturas-exportar-excel")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        usuario_sin_permiso = get_user_model().objects.create_user(
+            "excel-sin-permiso", is_staff=True
+        )
+        self.client.force_authenticate(usuario_sin_permiso)
+        self.assertEqual(
+            self.client.get(url).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.client.force_authenticate(self.usuario)
+        with patch(
+            "licensing.decorators.license_manager.is_enabled",
+            return_value=False,
+        ):
+            sin_licencia = self.client.get(url)
+        self.assertEqual(sin_licencia.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(sin_licencia.data["error"], "license_required")

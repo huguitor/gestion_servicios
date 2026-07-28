@@ -15,6 +15,7 @@ class PuedeGestionarCobranzas(BasePermission):
         # DELETE no está habilitado; permitir llegar al dispatcher produce 405.
         "destroy": "cobranzas.view_facturacobranza",
         "dashboard": "cobranzas.view_facturacobranza",
+        "exportar_excel": "cobranzas.view_facturacobranza",
     }
 
     def has_permission(self, request, view):

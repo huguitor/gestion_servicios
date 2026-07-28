@@ -1,6 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
+from django.http import HttpResponse
 from django.db.models import (
     DateField,
     DecimalField,
@@ -19,6 +20,8 @@ from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from licensing.decorators import require_module
+
 from .filters import FacturaCobranzaFilter
 from .models import Cobro, FacturaCobranza
 from .permissions import PuedeGestionarCobranzas
@@ -28,6 +31,7 @@ from .serializers import (
     FacturaCobranzaSerializer,
     SeguimientoCobranzaSerializer,
 )
+from .services import generar_excel_cobranzas
 
 
 ZERO_MONEY = Value(
@@ -90,6 +94,7 @@ class FacturaCobranzaViewSet(viewsets.ModelViewSet):
         queryset = (
             FacturaCobranza.objects.select_related(
                 "cliente",
+                "comprobante_original",
                 "presupuesto__comprobante",
                 "creado_por",
                 "enviado_por",
@@ -219,10 +224,19 @@ class FacturaCobranzaViewSet(viewsets.ModelViewSet):
             total_facturado - total_notas_credito - total_cobrado_documentos,
             Decimal("0.00"),
         )
-        total_cobrado_mes = Cobro.objects.filter(
-            fecha_cobro__gte=inicio_mes,
-            fecha_cobro__lte=hoy,
-        ).aggregate(total=Coalesce(Sum("importe"), ZERO_MONEY))["total"]
+        hay_rango = bool(
+            request.query_params.get("fecha_desde")
+            or request.query_params.get("fecha_hasta")
+        )
+        if hay_rango:
+            total_cobrado_mes = facturas.aggregate(
+                total=Coalesce(Sum("_total_cobrado"), ZERO_MONEY)
+            )["total"]
+        else:
+            total_cobrado_mes = Cobro.objects.filter(
+                fecha_cobro__gte=inicio_mes,
+                fecha_cobro__lte=hoy,
+            ).aggregate(total=Coalesce(Sum("importe"), ZERO_MONEY))["total"]
         cantidades = {
             "pendiente": facturas.filter(_total_aplicado=Decimal("0.00")).count(),
             "parcial": facturas.filter(
@@ -250,3 +264,25 @@ class FacturaCobranzaViewSet(viewsets.ModelViewSet):
                 ).data,
             }
         )
+
+    @action(detail=False, methods=["get"], url_path="exportar-excel")
+    @require_module("cobranzas")
+    def exportar_excel(self, request):
+        comprobantes = self.filter_queryset(self.get_queryset())
+        contenido = generar_excel_cobranzas(comprobantes)
+        fecha_desde = request.query_params.get("fecha_desde")
+        fecha_hasta = request.query_params.get("fecha_hasta")
+        if fecha_desde or fecha_hasta:
+            desde = fecha_desde or "inicio"
+            hasta = fecha_hasta or "hoy"
+            nombre = f"cobranzas_{desde}_a_{hasta}.xlsx"
+        else:
+            nombre = f"cobranzas_{timezone.localdate().isoformat()}.xlsx"
+        response = HttpResponse(
+            contenido,
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+        response["Content-Disposition"] = f'attachment; filename="{nombre}"'
+        return response

@@ -18,6 +18,7 @@ def require_module(
         view_method,
     ):
 
+        @wraps(view_method)
         def wrapped(
             self,
             request,
@@ -64,3 +65,4 @@ def require_module(
         return wrapped
 
     return decorator
+from functools import wraps
