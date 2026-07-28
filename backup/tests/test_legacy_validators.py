@@ -133,7 +133,7 @@ class LegacyValidatorTests(SimpleTestCase):
                 FakeConnection(tables={"clientes_cliente"}, non_empty={"clientes_cliente"}),
             )
             validation_context.postgres_tables = {"clientes_cliente"}
-            with self.assertRaisesRegex(PreflightError, "contiene datos"):
+            with self.assertRaisesRegex(PreflightError, "datos inesperados"):
                 BusinessTablesEmptyValidator(
                     table_provider=lambda: {"clientes_cliente"}
                 ).validate(validation_context)

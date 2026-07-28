@@ -13,7 +13,8 @@ from django.db.migrations.executor import MigrationExecutor
 
 from .media_reader import LegacyMediaReader, MediaAuditError, validate_hashes
 from .media_staging import MediaStaging, StagingError
-from .schema import TECHNICAL_TABLES
+from .baselines import BASELINE_SPECS
+from .schema import TARGET_ONLY_MODELS, TECHNICAL_TABLES
 
 
 class PreflightError(Exception):
@@ -219,8 +220,15 @@ def current_business_tables() -> set[str]:
 class BusinessTablesEmptyValidator:
     code = "business_tables_empty"
 
-    def __init__(self, table_provider: Callable[[], set[str]] = current_business_tables):
+    def __init__(
+        self,
+        table_provider: Callable[[], set[str]] = current_business_tables,
+        baseline_specs=BASELINE_SPECS,
+    ):
         self.table_provider = table_provider
+        self.baseline_specs = {
+            spec.table: spec for spec in baseline_specs
+        }
 
     def validate(self, context: ValidationContext) -> ValidationResult:
         available = context.postgres_tables or set(
@@ -234,31 +242,138 @@ class BusinessTablesEmptyValidator:
                 "Faltan tablas de negocio actuales.",
                 {"missing": missing},
             )
-        non_empty = []
+        table_results = []
+        invalid_baselines = []
+        unexpected_data = []
         try:
-            with context.connection.cursor() as cursor:
-                for table_name in sorted(expected):
+            for table_name in sorted(expected):
+                category = self._table_category(context, table_name)
+                spec = self.baseline_specs.get(table_name)
+                if spec:
+                    result = self._validate_baseline(context, spec)
+                    result["category"] = "generated_baseline"
+                    table_results.append(result)
+                    if result["status"] != "baseline_valid":
+                        invalid_baselines.append(result)
+                    continue
+                with context.connection.cursor() as cursor:
                     quoted = context.connection.ops.quote_name(table_name)
                     cursor.execute(f"SELECT 1 FROM {quoted} LIMIT 1")
                     if cursor.fetchone() is not None:
-                        non_empty.append(table_name)
+                        result = {
+                            "table": table_name,
+                            "category": category,
+                            "status": "unexpected_data",
+                        }
+                        table_results.append(result)
+                        unexpected_data.append(result)
+                    else:
+                        table_results.append(
+                            {
+                                "table": table_name,
+                                "category": category,
+                                "status": "empty_valid",
+                            }
+                        )
         except Exception as exc:
             raise PreflightError(
                 self.code,
                 f"No se pudo verificar que las tablas estén vacías: {exc}",
             ) from exc
-        if non_empty:
+        if invalid_baselines or unexpected_data:
             raise PreflightError(
                 self.code,
-                "PostgreSQL contiene datos de negocio.",
-                {"non_empty": non_empty},
+                "PostgreSQL contiene un baseline inválido o datos inesperados.",
+                {
+                    "baseline_invalid": invalid_baselines,
+                    "unexpected_data": unexpected_data,
+                    "tables": table_results,
+                },
             )
         return ValidationResult(
             self.code,
             "ok",
-            "Tablas de negocio vacías.",
-            {"checked": len(expected)},
+            "Tablas importables vacías y baselines exactos.",
+            {
+                "checked": len(expected),
+                "tables": table_results,
+                "baseline_tables": sorted(self.baseline_specs),
+            },
         )
+
+    @staticmethod
+    def _table_category(context, table_name):
+        imported_tables = set()
+        for mapping in getattr(context.manifest, "imported_mappings", ()):
+            if mapping.target_model:
+                imported_tables.add(
+                    apps.get_model(mapping.target_model)._meta.db_table
+                )
+        if table_name in imported_tables:
+            return "import_destination"
+        target_only_tables = {
+            apps.get_model(model_label)._meta.db_table
+            for model_label in TARGET_ONLY_MODELS
+        }
+        if table_name in target_only_tables:
+            return "target_only"
+        return "empty_required"
+
+    @staticmethod
+    def _validate_baseline(context, spec):
+        model = apps.get_model(spec.model_label)
+        actual_rows = list(
+            model._default_manager.using(context.connection.alias)
+            .order_by(*spec.key_fields)
+            .values(*spec.fields)
+        )
+        expected_by_key = {
+            tuple(row[field] for field in spec.key_fields): row
+            for row in spec.rows
+        }
+        actual_by_key = {
+            tuple(row[field] for field in spec.key_fields): row
+            for row in actual_rows
+        }
+        missing_keys = sorted(set(expected_by_key) - set(actual_by_key))
+        additional_keys = sorted(set(actual_by_key) - set(expected_by_key))
+        differences = []
+        for key in sorted(set(expected_by_key) & set(actual_by_key)):
+            expected = expected_by_key[key]
+            actual = actual_by_key[key]
+            changed = {
+                field: {
+                    "expected": expected[field],
+                    "found": actual[field],
+                }
+                for field in spec.fields
+                if expected[field] != actual[field]
+            }
+            if changed:
+                differences.append(
+                    {
+                        "key": dict(zip(spec.key_fields, key)),
+                        "fields": changed,
+                    }
+                )
+        status = (
+            "baseline_valid"
+            if not missing_keys and not additional_keys and not differences
+            else "baseline_invalid"
+        )
+        return {
+            "table": spec.table,
+            "status": status,
+            "expected_count": len(spec.rows),
+            "found_count": len(actual_rows),
+            "missing_rows": [
+                expected_by_key[key] for key in missing_keys
+            ],
+            "additional_rows": [
+                actual_by_key[key] for key in additional_keys
+            ],
+            "different_fields": differences,
+        }
 
 
 class StagingAvailableValidator:
