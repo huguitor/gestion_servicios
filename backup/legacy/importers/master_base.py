@@ -143,7 +143,7 @@ class MasterModelImporter(BaseImporter):
         target_fks = {
             field.attname
             for field in self.model._meta.concrete_fields
-            if field.is_relation and field.many_to_one
+            if field.is_relation and (field.many_to_one or field.one_to_one)
         }
         if target_fks != expected_fk_columns:
             raise MasterImportError(

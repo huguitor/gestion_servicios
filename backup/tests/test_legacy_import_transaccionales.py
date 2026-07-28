@@ -8,6 +8,7 @@ from django.db.models.signals import post_save, pre_save
 from django.test import TestCase
 
 from backup.legacy.importers.master_base import MasterImportError
+from backup.legacy.importers.comprobantes import ComprobanteImporter
 from backup.legacy.importers.pedidos import (
     PedidoImporter,
     PedidoItemImporter,
@@ -25,6 +26,7 @@ from backup.legacy.importers.remitos import (
     RemitoImporter,
     RemitosImporter,
 )
+from backup.legacy.importers.web_clientes import ClienteWebImporter
 from clientes.models import Cliente
 from comprobantes.models import Comprobante
 from pedidos.models import Pedido, PedidoItem
@@ -42,6 +44,9 @@ PRESUPUESTO_IMPORTERS = (
 )
 REMITO_IMPORTERS = (RemitoImporter, ItemRemitoImporter, RemitoAdjuntoImporter)
 PEDIDO_IMPORTERS = (PedidoImporter, PedidoItemImporter)
+PRESUPUESTO_SOURCE_IMPORTERS = (ComprobanteImporter,) + PRESUPUESTO_IMPORTERS
+REMITO_SOURCE_IMPORTERS = (ComprobanteImporter,) + REMITO_IMPORTERS
+PEDIDO_SOURCE_IMPORTERS = (ClienteWebImporter,) + PEDIDO_IMPORTERS
 
 
 def source_columns(importer_class):
@@ -101,6 +106,13 @@ def create_domain_source(path, importer_classes, rows_by_table):
 def presupuesto_rows(*, wrong_totals=False, invalid_item_fk=False):
     subtotal = "999.00" if wrong_totals else "20.00"
     return {
+        "comprobantes_comprobante": [
+            {
+                "id": 1, "tipo": "PRES", "serie": "00001",
+                "numero_inicial": 1, "proximo_numero": 100,
+                "numero_final": 999,
+            }
+        ],
         "presupuestos_presupuesto": [
             {
                 "id": 10, "fecha": "2020-01-02 03:04:05+00:00",
@@ -154,6 +166,13 @@ def remito_rows(*, invalid_child=False):
             }
         )
     return {
+        "comprobantes_comprobante": [
+            {
+                "id": 2, "tipo": "REMI", "serie": "00001",
+                "numero_inicial": 1, "proximo_numero": 100,
+                "numero_final": 999,
+            }
+        ],
         "remitos_remito": [
             {
                 "id": 11, "numero": 88, "fecha_emision": "2020-03-04",
@@ -184,6 +203,7 @@ def remito_rows(*, invalid_child=False):
 
 def pedido_rows(*, wrong_totals=False, invalid_child=False):
     return {
+        "web_clientes_clienteweb": [],
         "pedidos_pedido": [
             {
                 "id": 12, "estado": "confirmado",
@@ -226,18 +246,6 @@ class TransactionalImportersTests(TestCase):
                 )
             ]
         )
-        Comprobante.objects.bulk_create(
-            [
-                Comprobante(
-                    id=1, tipo="PRES", serie="00001",
-                    numero_inicial=1, proximo_numero=100, numero_final=999,
-                ),
-                Comprobante(
-                    id=2, tipo="REMI", serie="00001",
-                    numero_inicial=1, proximo_numero=100, numero_final=999,
-                ),
-            ]
-        )
         Producto.objects.bulk_create(
             [Producto(id=1, sku="P-1", nombre="Producto", precio_venta=10, stock=5)]
         )
@@ -250,9 +258,15 @@ class TransactionalImportersTests(TestCase):
         self.addCleanup(temporary.cleanup)
         return Path(temporary.name) / "database.sqlite3"
 
+    def import_dependency(self, path, importer_class):
+        return importer_class(path).import_all()
+
     def test_imports_complete_presupuesto_domain_and_preserves_history(self):
         path = self.source_path()
-        create_domain_source(path, PRESUPUESTO_IMPORTERS, presupuesto_rows())
+        create_domain_source(
+            path, PRESUPUESTO_SOURCE_IMPORTERS, presupuesto_rows()
+        )
+        self.import_dependency(path, ComprobanteImporter)
 
         reports = PresupuestosImporter(path, batch_size=1).import_all()
 
@@ -270,8 +284,9 @@ class TransactionalImportersTests(TestCase):
     def test_preserves_totals_and_warns_when_current_calculation_differs(self):
         path = self.source_path()
         create_domain_source(
-            path, PRESUPUESTO_IMPORTERS, presupuesto_rows(wrong_totals=True)
+            path, PRESUPUESTO_SOURCE_IMPORTERS, presupuesto_rows(wrong_totals=True)
         )
+        self.import_dependency(path, ComprobanteImporter)
 
         reports = PresupuestosImporter(path).import_all()
 
@@ -283,7 +298,8 @@ class TransactionalImportersTests(TestCase):
 
     def test_imports_complete_remito_domain_and_preserves_references(self):
         path = self.source_path()
-        create_domain_source(path, REMITO_IMPORTERS, remito_rows())
+        create_domain_source(path, REMITO_SOURCE_IMPORTERS, remito_rows())
+        self.import_dependency(path, ComprobanteImporter)
 
         reports = RemitosImporter(path).import_all()
 
@@ -297,7 +313,8 @@ class TransactionalImportersTests(TestCase):
 
     def test_imports_complete_pedido_without_stock_movements(self):
         path = self.source_path()
-        create_domain_source(path, PEDIDO_IMPORTERS, pedido_rows())
+        create_domain_source(path, PEDIDO_SOURCE_IMPORTERS, pedido_rows())
+        self.import_dependency(path, ClienteWebImporter)
 
         reports = PedidosImporter(path).import_all()
 
@@ -311,8 +328,9 @@ class TransactionalImportersTests(TestCase):
     def test_pedido_preserves_historical_total_and_warns_on_difference(self):
         path = self.source_path()
         create_domain_source(
-            path, PEDIDO_IMPORTERS, pedido_rows(wrong_totals=True)
+            path, PEDIDO_SOURCE_IMPORTERS, pedido_rows(wrong_totals=True)
         )
+        self.import_dependency(path, ClienteWebImporter)
 
         reports = PedidosImporter(path).import_all()
 
@@ -324,13 +342,19 @@ class TransactionalImportersTests(TestCase):
 
     def test_empty_origins(self):
         for coordinator, importers in (
-            (PresupuestosImporter, PRESUPUESTO_IMPORTERS),
-            (RemitosImporter, REMITO_IMPORTERS),
-            (PedidosImporter, PEDIDO_IMPORTERS),
+            (PresupuestosImporter, PRESUPUESTO_SOURCE_IMPORTERS),
+            (RemitosImporter, REMITO_SOURCE_IMPORTERS),
+            (PedidosImporter, PEDIDO_SOURCE_IMPORTERS),
         ):
             with self.subTest(domain=coordinator.__name__):
                 path = self.source_path()
                 create_domain_source(path, importers, {})
+                dependency = (
+                    ClienteWebImporter
+                    if coordinator is PedidosImporter
+                    else ComprobanteImporter
+                )
+                self.import_dependency(path, dependency)
                 reports = coordinator(path).import_all()
                 self.assertTrue(all(report.imported_count == 0 for report in reports.values()))
 
@@ -338,9 +362,10 @@ class TransactionalImportersTests(TestCase):
         path = self.source_path()
         create_domain_source(
             path,
-            PRESUPUESTO_IMPORTERS,
+            PRESUPUESTO_SOURCE_IMPORTERS,
             presupuesto_rows(invalid_item_fk=True),
         )
+        self.import_dependency(path, ComprobanteImporter)
         with self.assertRaisesRegex(MasterImportError, "FK inválidas"):
             PresupuestosImporter(path).import_all()
         self.assertFalse(Presupuesto.objects.exists())
@@ -348,8 +373,9 @@ class TransactionalImportersTests(TestCase):
     def test_invalid_later_child_rolls_back_complete_domain(self):
         path = self.source_path()
         create_domain_source(
-            path, REMITO_IMPORTERS, remito_rows(invalid_child=True)
+            path, REMITO_SOURCE_IMPORTERS, remito_rows(invalid_child=True)
         )
+        self.import_dependency(path, ComprobanteImporter)
         with self.assertRaisesRegex(MasterImportError, "cantidad"):
             RemitosImporter(path, batch_size=1).import_all()
         self.assertFalse(Remito.objects.exists())
@@ -358,12 +384,18 @@ class TransactionalImportersTests(TestCase):
         rows = pedido_rows(invalid_child=True)
         rows["pedidos_pedido"][0]["estado"] = "estado-inválido"
         path = self.source_path()
-        create_domain_source(path, PEDIDO_IMPORTERS, rows)
+        create_domain_source(path, PEDIDO_SOURCE_IMPORTERS, rows)
+        self.import_dependency(path, ClienteWebImporter)
         with self.assertRaises(MasterImportError):
             PedidosImporter(path).import_all()
         self.assertFalse(Pedido.objects.exists())
 
     def test_destination_not_empty_aborts(self):
+        path = self.source_path()
+        create_domain_source(
+            path, PRESUPUESTO_SOURCE_IMPORTERS, presupuesto_rows()
+        )
+        self.import_dependency(path, ComprobanteImporter)
         Presupuesto.objects.bulk_create(
             [
                 Presupuesto(
@@ -372,14 +404,15 @@ class TransactionalImportersTests(TestCase):
                 )
             ]
         )
-        path = self.source_path()
-        create_domain_source(path, PRESUPUESTO_IMPORTERS, presupuesto_rows())
         with self.assertRaisesRegex(MasterImportError, "no está vacío"):
             PresupuestosImporter(path).import_all()
 
     def test_no_save_signals_are_emitted(self):
         path = self.source_path()
-        create_domain_source(path, PRESUPUESTO_IMPORTERS, presupuesto_rows())
+        create_domain_source(
+            path, PRESUPUESTO_SOURCE_IMPORTERS, presupuesto_rows()
+        )
+        self.import_dependency(path, ComprobanteImporter)
         receivers = []
         for model in (Presupuesto, PresupuestoItem, PresupuestoAdjunto):
             pre_receiver, post_receiver = Mock(), Mock()
