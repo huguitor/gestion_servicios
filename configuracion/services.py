@@ -39,6 +39,32 @@ class ConfiguracionService:
         }
 
     @staticmethod
+    def obtener_identidad_pdf():
+        """Datos y logo físico utilizados por los documentos PDF."""
+        config = ConfiguracionService.obtener_configuracion()
+        logo_path = None
+
+        try:
+            if (
+                config.logo_principal
+                and os.path.exists(config.logo_principal.path)
+                and os.path.getsize(config.logo_principal.path) > 0
+            ):
+                logo_path = config.logo_principal.path
+        except (NotImplementedError, OSError, ValueError):
+            logo_path = None
+
+        return {
+            "nombre_empresa": config.nombre_empresa or "",
+            "cuit": config.cuit or "",
+            "direccion": config.direccion or "",
+            "telefono": config.telefono or "",
+            "email": config.email or "",
+            "pagina_web": config.pagina_web or "",
+            "logo_path": logo_path,
+        }
+
+    @staticmethod
     def obtener_config_login():
         """
         Configuración pública para login, portal y frontends.

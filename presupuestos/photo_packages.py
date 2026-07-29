@@ -1,6 +1,7 @@
 from django.utils import timezone
 
 from archivos.services.photo_packages import (
+    etiqueta_cliente,
     generar_pdf_registro,
     generar_zip_originales,
     nombre_archivo_paquete,
@@ -37,7 +38,8 @@ def generar_pdf_fotografico(*, presupuesto, adjuntos):
         document_title="Presupuesto",
         document_label="Presupuesto",
         document_number=numero_formateado(presupuesto),
-        client_label=str(presupuesto.cliente),
+        client_label=etiqueta_cliente(presupuesto.cliente),
+        client_tax_id=getattr(presupuesto.cliente, "documento", "") or "",
         date_label=fecha,
     )
 

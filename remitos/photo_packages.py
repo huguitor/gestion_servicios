@@ -1,4 +1,5 @@
 from archivos.services.photo_packages import (
+    etiqueta_cliente,
     generar_pdf_registro,
     generar_zip_originales,
     nombre_archivo_paquete,
@@ -28,7 +29,8 @@ def generar_pdf_fotografico(*, remito, adjuntos):
         document_title="Remito",
         document_label="Remito",
         document_number=remito.numero_formateado,
-        client_label=str(remito.cliente),
+        client_label=etiqueta_cliente(remito.cliente),
+        client_tax_id=getattr(remito.cliente, "documento", "") or "",
         date_label=remito.fecha_emision.strftime("%d/%m/%Y"),
     )
 
