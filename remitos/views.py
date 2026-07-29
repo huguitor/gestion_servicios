@@ -9,8 +9,20 @@ from django.db.models.functions import TruncMonth  # ← AGREGADO
 from django.core.exceptions import ValidationError  # ← AGREGADO
 from django.http import HttpResponse  # ← Tanda 5: descarga PDF
 from .models import Remito, ItemRemito, RemitoAdjunto
-from .serializers import RemitoSerializer, ItemRemitoSerializer, RemitoAdjuntoSerializer
+from .serializers import (
+    ItemRemitoSerializer,
+    RemitoAdjuntoSerializer,
+    RemitoSerializer,
+    SeleccionAdjuntosSerializer,
+)
 from .pdf_generator import filename_for, generar_pdf_remito  # ← Tanda 5
+from .photo_packages import (
+    generar_pdf_fotografico,
+    generar_zip_fotografico,
+    nombre_paquete,
+    validar_adjuntos_fotograficos,
+)
+from licensing.decorators import require_module
 
 
 class RemitoViewSet(viewsets.ModelViewSet):
@@ -433,3 +445,58 @@ class RemitoAdjuntoViewSet(viewsets.ModelViewSet):
             serializer.save(subido_por=self.request.user, remito_id=remito_pk)
         else:
             serializer.save(subido_por=self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='pdf')
+    @require_module('remitos')
+    def pdf_fotografico(self, request, remito_pk=None):
+        remito = self._get_remito(remito_pk)
+        seleccion = SeleccionAdjuntosSerializer(data=request.data)
+        seleccion.is_valid(raise_exception=True)
+        adjuntos = validar_adjuntos_fotograficos(
+            remito=remito,
+            adjuntos=self.get_queryset().filter(
+                id__in=seleccion.validated_data['adjunto_ids']
+            ),
+            requested_ids=seleccion.validated_data['adjunto_ids'],
+        )
+        contenido = generar_pdf_fotografico(remito=remito, adjuntos=adjuntos)
+        return self._download_response(
+            contenido,
+            nombre_paquete(remito, 'pdf'),
+            'application/pdf',
+        )
+
+    @action(detail=False, methods=['post'], url_path='zip')
+    @require_module('remitos')
+    def zip_fotografico(self, request, remito_pk=None):
+        remito = self._get_remito(remito_pk)
+        seleccion = SeleccionAdjuntosSerializer(data=request.data)
+        seleccion.is_valid(raise_exception=True)
+        adjuntos = validar_adjuntos_fotograficos(
+            remito=remito,
+            adjuntos=self.get_queryset().filter(
+                id__in=seleccion.validated_data['adjunto_ids']
+            ),
+            requested_ids=seleccion.validated_data['adjunto_ids'],
+        )
+        contenido = generar_zip_fotografico(adjuntos=adjuntos)
+        return self._download_response(
+            contenido,
+            nombre_paquete(remito, 'zip'),
+            'application/zip',
+        )
+
+    @staticmethod
+    def _get_remito(remito_pk):
+        from django.shortcuts import get_object_or_404
+
+        return get_object_or_404(
+            Remito.objects.select_related('cliente', 'comprobante'),
+            pk=remito_pk,
+        )
+
+    @staticmethod
+    def _download_response(contenido, filename, content_type):
+        response = HttpResponse(contenido, content_type=content_type)
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
