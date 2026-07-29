@@ -8,8 +8,19 @@ from django.db.models import Sum, Count
 from django.http import HttpResponse
 
 from .models import Presupuesto, PresupuestoAdjunto
-from .serializers import PresupuestoSerializer, PresupuestoAdjuntoSerializer
+from .serializers import (
+    PresupuestoAdjuntoSerializer,
+    PresupuestoSerializer,
+    SeleccionAdjuntosSerializer,
+)
 from .pdf_generator import filename_for, generar_pdf_presupuesto
+from .photo_packages import (
+    generar_pdf_fotografico,
+    generar_zip_fotografico,
+    nombre_paquete,
+    validar_adjuntos_fotograficos,
+)
+from licensing.decorators import require_module
 
 
 class PresupuestoViewSet(viewsets.ModelViewSet):
@@ -154,6 +165,64 @@ class PresupuestoAdjuntoViewSet(viewsets.ModelViewSet):
             )
         else:
             serializer.save(subido_por=self.request.user)
+
+    @action(detail=False, methods=['post'], url_path='pdf')
+    @require_module('presupuestos')
+    def pdf_fotografico(self, request, presupuesto_pk=None):
+        presupuesto = self._get_presupuesto(presupuesto_pk)
+        seleccion = SeleccionAdjuntosSerializer(data=request.data)
+        seleccion.is_valid(raise_exception=True)
+        adjuntos = validar_adjuntos_fotograficos(
+            presupuesto=presupuesto,
+            adjuntos=self.get_queryset().filter(
+                id__in=seleccion.validated_data['adjunto_ids']
+            ),
+            requested_ids=seleccion.validated_data['adjunto_ids'],
+        )
+        contenido = generar_pdf_fotografico(
+            presupuesto=presupuesto,
+            adjuntos=adjuntos,
+        )
+        return self._download_response(
+            contenido,
+            nombre_paquete(presupuesto, 'pdf'),
+            'application/pdf',
+        )
+
+    @action(detail=False, methods=['post'], url_path='zip')
+    @require_module('presupuestos')
+    def zip_fotografico(self, request, presupuesto_pk=None):
+        presupuesto = self._get_presupuesto(presupuesto_pk)
+        seleccion = SeleccionAdjuntosSerializer(data=request.data)
+        seleccion.is_valid(raise_exception=True)
+        adjuntos = validar_adjuntos_fotograficos(
+            presupuesto=presupuesto,
+            adjuntos=self.get_queryset().filter(
+                id__in=seleccion.validated_data['adjunto_ids']
+            ),
+            requested_ids=seleccion.validated_data['adjunto_ids'],
+        )
+        contenido = generar_zip_fotografico(adjuntos=adjuntos)
+        return self._download_response(
+            contenido,
+            nombre_paquete(presupuesto, 'zip'),
+            'application/zip',
+        )
+
+    @staticmethod
+    def _get_presupuesto(presupuesto_pk):
+        from django.shortcuts import get_object_or_404
+
+        return get_object_or_404(
+            Presupuesto.objects.select_related('cliente', 'comprobante'),
+            pk=presupuesto_pk,
+        )
+
+    @staticmethod
+    def _download_response(contenido, filename, content_type):
+        response = HttpResponse(contenido, content_type=content_type)
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
     @action(detail=False, methods=['get'])
     def tipos_disponibles(self, request):

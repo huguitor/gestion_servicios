@@ -456,3 +456,16 @@ class PresupuestoAdjuntoSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["subido_por"] = self.context["request"].user
         return super().create(validated_data)
+
+
+class SeleccionAdjuntosSerializer(serializers.Serializer):
+    adjunto_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        max_length=30,
+    )
+
+    def validate_adjunto_ids(self, value):
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("No se permiten IDs duplicados.")
+        return value
