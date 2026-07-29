@@ -438,7 +438,14 @@ class PresupuestoAdjuntoSerializer(serializers.ModelSerializer):
         return obj.get_tamaño_formateado()
 
     def get_url_descarga(self, obj):
-        return obj.url_descarga
+        if not obj.archivo:
+            return ""
+
+        request = self.context.get("request")
+        if request:
+            return request.build_absolute_uri(obj.archivo.url)
+
+        return obj.archivo.url
 
     def get_puede_visualizar(self, obj):
         return obj.puede_visualizar

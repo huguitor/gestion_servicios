@@ -16,6 +16,7 @@ from rest_framework.test import APITestCase
 from clientes.models import Cliente
 from comprobantes.models import Comprobante
 from presupuestos.models import Presupuesto, PresupuestoAdjunto
+from presupuestos.serializers import PresupuestoAdjuntoSerializer
 
 
 class PresupuestoPhotoPackagesTests(APITestCase):
@@ -256,3 +257,24 @@ class PresupuestoPhotoPackagesTests(APITestCase):
             self._url("zip"), {"adjunto_ids": [image.id]}, format="json"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_url_descarga_absoluta_y_fallback_sin_request(self):
+        image = self._adjunto("IMG_0182.jpg")
+
+        response = self.client.get(
+            f"/api/presupuestos/{self.presupuesto.pk}/adjuntos/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = (
+            response.data
+            if isinstance(response.data, list)
+            else response.data["results"]
+        )
+        self.assertEqual(
+            rows[0]["url_descarga"],
+            f"http://testserver{image.archivo.url}",
+        )
+
+        serialized = PresupuestoAdjuntoSerializer(image).data
+        self.assertEqual(serialized["url_descarga"], image.archivo.url)
